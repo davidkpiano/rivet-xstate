@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "rivetkit": {
+      "source": "rivet-dev/skills",
+      "sourceType": "github",
+      "skillPath": "rivetkit/SKILL.md",
+      "computedHash": "98c4e560c34e1dcf906bfea8ba92e29531d286087b4db49bd99e714ac2c47890"
+    },
+    "rivetkit-client-javascript": {
+      "source": "rivet-dev/skills",
+      "sourceType": "github",
+      "skillPath": "rivetkit-client-javascript/SKILL.md",
+      "computedHash": "774425948bd8d2574a242ed3383cf729db88b940ecf92101c8000082de09d588"
+    },
+    "rivetkit-client-react": {
+      "source": "rivet-dev/skills",
+      "sourceType": "github",
+      "skillPath": "rivetkit-client-react/SKILL.md",
+      "computedHash": "90b641d56b48ffc4720db7de7dfdb46ce8aae1bc4e0b30f85f1c4548c7879981"
+    }
+  }
+}

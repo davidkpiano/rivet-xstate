@@ -1,0 +1,34 @@
+{
+  "name": "rivet-xstate-react",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n actor,web -c green,blue \"pnpm dev:actor\" \"pnpm dev:web\"",
+    "dev:actor": "tsx watch src/server/registry.ts",
+    "dev:web": "vite",
+    "start": "tsx src/server/registry.ts",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rivetkit/react": "^2.3.7",
+    "@statelyai/sdk": "link:../viz/packages/sdk",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "rivetkit": "^2.3.7",
+    "xstate": "6.0.0-alpha.21"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.1.1",
+    "concurrently": "9.2.1",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vite": "7.2.4",
+    "vitest": "4.0.17"
+  }
+}
