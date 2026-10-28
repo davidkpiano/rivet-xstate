@@ -12,8 +12,8 @@ importers:
         specifier: ^2.3.7
         version: 2.3.7(better-sqlite3@12.11.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@statelyai/sdk':
-        specifier: link:../viz/packages/sdk
-        version: link:../viz/packages/sdk
+        specifier: 0.40.0
+        version: 0.40.0(zod@4.4.3)
       react:
         specifier: 19.2.3
         version: 19.2.3
@@ -828,6 +828,63 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==, tarball: https://registry.npmjs.org/@standard-schema/spec/-/spec-1.1.0.tgz}
+
+  '@statelyai/graph@2.6.0':
+    resolution: {integrity: sha512-0TotB7OIQDnmKIWrBR5hDgv85IwoLSfYbDhdYd/Yd5N9qePBNApR9tcR8agICBSX16Fb2Q5FM52CpVoFmHHbxg==}
+    peerDependencies:
+      '@dagrejs/dagre': ^3.0.0 || ^4.0.0
+      '@hpcc-js/wasm-graphviz': ^1.0.0
+      cytoscape: ^3.0.0
+      d3-force: ^3.0.0
+      d3-hierarchy: ^3.0.0
+      dotparser: ^1.0.0
+      elkjs: ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0
+      fast-xml-parser: ^5.0.0
+      fflate: 0.8.3
+      graphology: ^0.26.0
+      graphology-layout-forceatlas2: ^0.10.0
+      webcola: ^3.4.0
+      xstate: ^5.19.0
+      zod: ^4.0.0
+    peerDependenciesMeta:
+      '@dagrejs/dagre':
+        optional: true
+      '@hpcc-js/wasm-graphviz':
+        optional: true
+      cytoscape:
+        optional: true
+      d3-force:
+        optional: true
+      d3-hierarchy:
+        optional: true
+      dotparser:
+        optional: true
+      elkjs:
+        optional: true
+      fast-xml-parser:
+        optional: true
+      fflate:
+        optional: true
+      graphology:
+        optional: true
+      graphology-layout-forceatlas2:
+        optional: true
+      webcola:
+        optional: true
+      xstate:
+        optional: true
+      zod:
+        optional: true
+
+  '@statelyai/sdk@0.40.0':
+    resolution: {integrity: sha512-jwrWC99TqbaTecAxWIguZBBgLN8SB2rjWYb78hVfYS5k2SY19DLeB2dGzxEA4wuqBCJboDgY8nVmz6HhlC8R+A==}
+    engines: {node: '>=22.4'}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.19.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
 
   '@tanstack/react-store@0.7.7':
     resolution: {integrity: sha512-qqT0ufegFRDGSof9D/VqaZgjNgp4tRPHZIJq2+QIHkMUtHjaJ0lYrrXjeIUJvjnTbgPfSD1XgOMEt0lmANn6Zg==, tarball: https://registry.npmjs.org/@tanstack/react-store/-/react-store-0.7.7.tgz}
@@ -2055,6 +2112,9 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==, tarball: https://registry.npmjs.org/wrappy/-/wrappy-1.0.2.tgz}
 
+  xstate@5.33.3:
+    resolution: {integrity: sha512-AnDRjS/GyKHmbA1PyhVCYBqYsA7EGe3KGgeD0ht3NFsXzoz7leX/HQDFX9QlHFJ/ltLHPsgChJYwPzRvB/0b4g==}
+
   xstate@6.0.0-alpha.21:
     resolution: {integrity: sha512-R5zlOWEVip0R0nKbTpbrnYQ6cS60obOg3b8xWSUKx5oH2NQfZup2JPRTWh9dygxgqOGLnLAY5K0sRkiTTNh1Ww==, tarball: https://registry.npmjs.org/xstate/-/xstate-6.0.0-alpha.21.tgz}
     hasBin: true
@@ -2720,6 +2780,30 @@ snapshots:
       '@secure-exec/v8-linux-x64-gnu': 0.2.1
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@statelyai/graph@2.6.0(xstate@5.33.3)(zod@4.4.3)':
+    optionalDependencies:
+      xstate: 5.33.3
+      zod: 4.4.3
+
+  '@statelyai/sdk@0.40.0(zod@4.4.3)':
+    dependencies:
+      '@statelyai/graph': 2.6.0(xstate@5.33.3)(zod@4.4.3)
+      xstate: 5.33.3
+    transitivePeerDependencies:
+      - '@dagrejs/dagre'
+      - '@hpcc-js/wasm-graphviz'
+      - cytoscape
+      - d3-force
+      - d3-hierarchy
+      - dotparser
+      - elkjs
+      - fast-xml-parser
+      - fflate
+      - graphology
+      - graphology-layout-forceatlas2
+      - webcola
+      - zod
 
   '@tanstack/react-store@0.7.7(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
@@ -4079,6 +4163,8 @@ snapshots:
       strip-ansi: 6.0.1
 
   wrappy@1.0.2: {}
+
+  xstate@5.33.3: {}
 
   xstate@6.0.0-alpha.21: {}
 

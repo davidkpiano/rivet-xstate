@@ -20,29 +20,16 @@ export function createEmbeddedInspector(
   const transport = createPostMessageTransport({ iframe, targetOrigin: '*' });
   const inspector = createInspector({
     transport,
-    autoOpen: false,
+    launch: 'none',
     theme: 'dark',
     // Panels start closed (still openable from the embed's toolbar).
-    panels: { activePanels: [] },
-  });
-
-  let pendingSelect: string | null = null;
-
-  function sendSelect(actorId: string) {
-    transport.send({ type: '@statelyai.system.selectActor', actorId });
-  }
-
-  // Registered after createInspector so the inspector's own queued init
-  // flushes first; selection then lands on a populated store.
-  transport.onReady(() => {
-    if (pendingSelect) sendSelect(pendingSelect);
+    panels: [{ id: 'inspection', initiallyOpen: false }],
   });
 
   return {
     inspector,
     select(actorId) {
-      pendingSelect = actorId;
-      if (transport.ready) sendSelect(actorId);
+      inspector.selectActor(`${inspector.producerId}:${actorId}`);
     },
     destroy() {
       inspector.destroy();

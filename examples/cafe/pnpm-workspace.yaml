@@ -1,0 +1,27 @@
+packages:
+  - .
+allowBuilds:
+  cbor-extract: true
+  esbuild: true
+minimumReleaseAgeExclude:
+  - '@rivetkit/engine-api-full@2.3.31'
+  - '@rivetkit/engine-cli-darwin-arm64@2.3.31'
+  - '@rivetkit/engine-cli-darwin-x64@2.3.31'
+  - '@rivetkit/engine-cli-linux-arm64-musl@2.3.31'
+  - '@rivetkit/engine-cli-linux-x64-musl@2.3.31'
+  - '@rivetkit/engine-cli-win32-x64@2.3.31'
+  - '@rivetkit/engine-cli@2.3.31'
+  - '@rivetkit/engine-envoy-protocol@2.3.31'
+  - '@rivetkit/rivetkit-napi-darwin-arm64@2.3.31'
+  - '@rivetkit/rivetkit-napi-darwin-x64@2.3.31'
+  - '@rivetkit/rivetkit-napi-linux-arm64-gnu@2.3.31'
+  - '@rivetkit/rivetkit-napi-linux-arm64-musl@2.3.31'
+  - '@rivetkit/rivetkit-napi-linux-x64-gnu@2.3.31'
+  - '@rivetkit/rivetkit-napi-linux-x64-musl@2.3.31'
+  - '@rivetkit/rivetkit-napi-win32-x64-msvc@2.3.31'
+  - '@rivetkit/rivetkit-napi@2.3.31'
+  - '@rivetkit/rivetkit-wasm@2.3.31'
+  - '@rivetkit/traces@2.3.31'
+  - '@rivetkit/virtual-websocket@2.3.31'
+  - '@rivetkit/workflow-engine@2.3.31'
+  - rivetkit@2.3.31
