@@ -1,5 +1,11 @@
 # XState v6 alpha × RivetKit
 
+<!-- durable cafe example entrypoint and scripts from examples/cafe/package.json -->
+
+For the newer multi-actor durable café demo, see [examples/cafe](examples/cafe/README.md).
+It runs in Node with SQLite recovery and the Stately inspector. Run `pnpm --dir examples/cafe install`,
+then `pnpm cafe --open`.
+
 A traffic-light state machine running inside a Rivet Actor. XState supplies pure statechart logic; Rivet is the runtime.
 
 <!-- runtime boundary implemented by src/server/xstateActor.ts -->

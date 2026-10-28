@@ -1,0 +1,24 @@
+{
+  "name": "@demo/durable-cafe",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.17.0"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@statelyai/sdk": "0.40.0",
+    "xstate": "6.0.0-alpha.70",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vitest": "4.0.17"
+  }
+}

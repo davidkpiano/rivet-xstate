@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "cafe": "pnpm --dir examples/cafe start",
+    "test:cafe": "pnpm --dir examples/cafe test",
+    "typecheck:cafe": "pnpm --dir examples/cafe typecheck",
     "dev": "concurrently -n actor,web -c green,blue \"pnpm dev:actor\" \"pnpm dev:web\"",
     "dev:actor": "tsx watch src/server/registry.ts",
     "dev:web": "vite",
@@ -14,7 +17,7 @@
   },
   "dependencies": {
     "@rivetkit/react": "^2.3.7",
-    "@statelyai/sdk": "link:../viz/packages/sdk",
+    "@statelyai/sdk": "0.40.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "rivetkit": "^2.3.7",
