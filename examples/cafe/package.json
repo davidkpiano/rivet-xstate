@@ -7,11 +7,14 @@
   },
   "scripts": {
     "start": "tsx src/main.ts",
+    "rivet": "tsx src/rivet/main.ts",
     "test": "vitest run",
+    "test:rivet": "vitest run src/rivet/integration.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@statelyai/sdk": "0.40.0",
+    "rivetkit": "2.3.31",
     "xstate": "6.0.0-alpha.70",
     "zod": "4.3.6"
   },

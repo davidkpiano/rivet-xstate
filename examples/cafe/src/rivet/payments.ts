@@ -101,16 +101,24 @@ export function createPaymentLedger(
       },
     }),
     actions: {
-      charge: (context, request: PaymentRequest): Promise<{ receiptId: string }> =>
+      charge: (
+        context,
+        request: PaymentRequest,
+      ): Promise<{ receiptId: string }> =>
         payment(context.db, 'charge', request, options.afterCommit),
-      refund: (context, request: PaymentRequest): Promise<{ receiptId: string }> =>
+      refund: (
+        context,
+        request: PaymentRequest,
+      ): Promise<{ receiptId: string }> =>
         payment(context.db, 'refund', request, options.afterCommit),
       receipts: async (context): Promise<Receipt[]> =>
-        z.array(receiptSchema).parse(
-          await context.db.execute(
-            'SELECT order_id AS orderId, kind, amount, receipt_id AS receiptId FROM payments ORDER BY order_id, kind',
+        z
+          .array(receiptSchema)
+          .parse(
+            await context.db.execute(
+              'SELECT order_id AS orderId, kind, amount, receipt_id AS receiptId FROM payments ORDER BY order_id, kind',
+            ),
           ),
-        ),
     },
   });
 }

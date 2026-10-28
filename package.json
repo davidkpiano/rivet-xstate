@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "cafe": "pnpm --dir examples/cafe start",
+    "cafe:rivet": "pnpm --dir examples/cafe rivet",
     "test:cafe": "pnpm --dir examples/cafe test",
     "typecheck:cafe": "pnpm --dir examples/cafe typecheck",
     "dev": "concurrently -n actor,web -c green,blue \"pnpm dev:actor\" \"pnpm dev:web\"",

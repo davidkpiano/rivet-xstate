@@ -3,8 +3,8 @@
 <!-- durable cafe example entrypoint and scripts from examples/cafe/package.json -->
 
 For the newer multi-actor durable café demo, see [examples/cafe](examples/cafe/README.md).
-It runs in Node with SQLite recovery and the Stately inspector. Run `pnpm --dir examples/cafe install`,
-then `pnpm cafe --open`.
+It runs in Node with SQLite recovery or native Rivet workflows, and the Stately inspector.
+Run `pnpm --dir examples/cafe install`, then `pnpm cafe --open` or `pnpm cafe:rivet --open`.
 
 A traffic-light state machine running inside a Rivet Actor. XState supplies pure statechart logic; Rivet is the runtime.
 

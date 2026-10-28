@@ -1,6 +1,7 @@
 import { createInspector, type Inspector } from '@statelyai/sdk/inspect';
 import { createCafeMachine, cafeInputSchema, type CafeInput } from './model.ts';
-import { LocalDurableHost, serializable } from './local-host.ts';
+import { LocalDurableHost } from './local-host.ts';
+import { serializable } from './inspection.ts';
 import { CafeStore } from './store.ts';
 
 export async function openCafe(options: {
