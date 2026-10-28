@@ -41,6 +41,9 @@ Use a different `--db` path for another run.
 Customers arrive at staggered times. Orders alternate between espresso and latte.
 Baristas share a grinder, espresso machine, and frother. The terminal serializes payments.
 Customers can lose patience; their orders handle cancellation and payment compensation.
+Breaking equipment pauses its operator. Repair restarts the full interrupted grinding, extraction,
+or frothing step. This models redoing interrupted work. Process recovery instead preserves the deadline
+of a step that was already running when the process stopped.
 
 Enter these commands in the running process:
 
@@ -79,6 +82,12 @@ Use `--json` for machine-readable status output, `--run-for 5000` for a timed ru
 One café is one durable execution containing many co-located actors.
 The domain machines import XState and receive ordinary async payment services.
 They contain no SQLite or Stately SDK calls.
+
+<!-- shared execution mechanics from src/execution-core.ts and both provider hosts -->
+
+Both hosts use `CafeExecution` for actor creation, logical time, mailbox settling, inspection,
+and delivery routing. Providers supply timer storage and async execution/journaling hooks.
+SQLite and Rivet keep their existing journal keys, completion ordering, and persisted histories.
 
 The local host records external events and timer firings before delivery.
 It rebuilds the actor tree by replaying that history with a stable execution identity.
@@ -126,6 +135,12 @@ This example verifies the native engine on this computer. It does not provision 
 Rivet workflow steps journal accepted input deliveries and async results. Its queue provides wake notifications.
 Commands commit to the actor's SQLite inbox before sending a wake notification, so a crash between those
 operations does not lose an accepted command. Repeating a command request ID with the same payload is safe.
+The acknowledgement means the command entered the durable inbox. Use `receipt REQUEST_ID` in the CLI
+or `cafe.getCommand(requestId)` to read `pending`, `delivered`, or `rejected`.
+Delivery does not imply a state change; for example, cancelling an unknown order has no effect.
+When the café finishes closing, its final snapshot and rejection of remaining queued commands commit
+together. Those receipts report `rejected` with reason `cafe_closed`; retrying their IDs returns that error.
+Repairs and cancellations can still enter the inbox while existing orders finish closing.
 Timer deadlines derive from the recorded execution clock, so replay preserves their original due times.
 The ledger commits charges and refunds using unique order/kind keys before returning receipts.
 
@@ -152,7 +167,10 @@ pnpm --dir examples/cafe test
 pnpm --dir examples/cafe typecheck
 ```
 
-The test suite includes real-engine Rivet tests and kills runner processes at payment, command-ingress,
-and brewing boundaries. It checks one effective charge, a recovered inbox command, and the original brewing
-deadline. Tests use isolated temporary engine storage and stop their own engine processes.
+The test suite includes real-engine Rivet tests and kills runner processes at charge/refund responses,
+command-ingress, and brewing boundaries. It checks one effective charge/refund, a recovered inbox command,
+and the original brewing deadline. It also covers terminal command rejection and timer-before-command
+ordering at an identical timestamp. Local tests cover automatic breakdown/repair across restarts and a
+saved pre-refactor history fixture. Tests use isolated temporary engine storage and stop their own engine processes.
 To run just the provider tests, use `pnpm --dir examples/cafe test:rivet`.
+The suite runs one test file at a time because its recovery fixtures launch and kill real processes.

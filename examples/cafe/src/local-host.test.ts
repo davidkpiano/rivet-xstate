@@ -5,6 +5,7 @@ import { afterEach, expect, test } from 'vitest';
 import { createAsyncLogic, createMachine, setup, types } from 'xstate';
 import { LocalDurableHost } from './local-host.ts';
 import { CafeStore } from './store.ts';
+import { cafeInputSchema, createCafeMachine } from './model.ts';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -16,6 +17,69 @@ function database() {
   directories.push(directory);
   return join(directory, 'cafe.sqlite');
 }
+
+test('scheduled equipment breakdown and repair survive replay with their original times', async () => {
+  const path = database();
+  const input = cafeInputSchema.parse({
+    customers: 2,
+    baristas: 2,
+    tickMs: 10,
+    patienceTicks: 200,
+    breakAfterTicks: 7,
+    repairTicks: 8,
+  });
+  const open = () => {
+    const store = new CafeStore(path);
+    return new LocalDurableHost({
+      store,
+      input,
+      now: () => 1000,
+      logic: createCafeMachine({
+        charge: async (r) => store.payment('charge', r),
+        refund: async (r) => store.payment('refund', r),
+      }),
+    });
+  };
+  let host = open();
+  await host.start();
+  await host.tick(1069);
+  expect(host.view().actors.find((a) => a.id === 'espresso')?.value).not.toBe(
+    'broken',
+  );
+  await host.close();
+  host = open();
+  await host.start();
+  await host.tick(1070);
+  expect(host.view().actors.find((a) => a.id === 'espresso')?.value).toBe(
+    'broken',
+  );
+  expect(
+    host
+      .view()
+      .actors.some(
+        (a) =>
+          a.id.startsWith('barista-') &&
+          a.value &&
+          JSON.stringify(a.value).includes('espressoPaused'),
+      ),
+  ).toBe(true);
+  await host.close();
+  host = open();
+  await host.start();
+  await host.tick(1149);
+  expect(host.view().actors.find((a) => a.id === 'espresso')?.value).toBe(
+    'broken',
+  );
+  await host.tick(1150);
+  expect(host.view().actors.find((a) => a.id === 'espresso')?.value).not.toBe(
+    'broken',
+  );
+  await host.tick(10000);
+  expect(
+    host.view().actors.find((a) => a.id === 'cafe')?.context,
+  ).toMatchObject({ served: 2, failed: 0 });
+  await host.close();
+});
 
 test('a child timer resumes against its original deadline with stable actor identities', async () => {
   const path = database();

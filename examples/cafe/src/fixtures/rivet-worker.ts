@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { z } from 'zod';
 
 const [storage, portText, mode] = process.argv.slice(2);
 if (!storage || !portText) throw new Error('Storage path and port required.');
@@ -9,14 +10,33 @@ const freeze = (type: string, data: unknown) => {
   process.kill(process.pid, 'SIGSTOP');
 };
 const port = Number(portText);
+let virtualNow = 1000;
+let gated = false;
+let publish: (() => void) | undefined;
 const registry = createCafeRegistry({
   enginePort: port,
   httpPort: port + 1,
+  ...(mode === 'tie' ? { now: () => virtualNow } : {}),
+  beforePublish: async (view) => {
+    if (
+      !gated &&
+      ((mode === 'closing' && view.status === 'done') || mode === 'tie')
+    ) {
+      gated = true;
+      await new Promise<void>((resolve) => {
+        publish = resolve;
+        process.send?.({ type: 'fault.beforePublish', data: view });
+      });
+    }
+  },
   afterCommandCommitted: (id) => {
     if (mode === 'command') freeze('fault.command', id);
   },
   afterPaymentResponse: (kind, orderId) => {
-    if (mode === 'payment' && kind === 'charge')
+    if (
+      (mode === 'payment' && kind === 'charge') ||
+      (mode === 'refund' && kind === 'refund')
+    )
       freeze('fault.payment', orderId);
   },
   onView: (view) => {
@@ -33,25 +53,49 @@ const registry = createCafeRegistry({
     process.send?.({ type: 'delivery', data: delivery });
   },
 });
-await registry.startAndWait();
-const children = execFileSync('ps', ['-axo', 'pid=,ppid=,comm='], {
-  encoding: 'utf8',
-})
-  .trim()
-  .split('\n');
-const engine = children
-  .map((line) => line.trim().split(/\s+/))
-  .find(
-    (parts) =>
-      Number(parts[1]) === process.pid &&
-      parts.slice(2).join(' ').includes('rivet-engine'),
-  );
+function enginePid(): number | null {
+  const children = execFileSync('ps', ['-axo', 'pid=,ppid=,comm='], {
+    encoding: 'utf8',
+  })
+    .trim()
+    .split('\n');
+  const engine = children
+    .map((line) => line.trim().split(/\s+/))
+    .find(
+      (parts) =>
+        Number(parts[1]) === process.pid &&
+        parts.slice(2).join(' ').includes('rivet-engine'),
+    );
+  return engine ? Number(engine[0]) : null;
+}
+const startupMonitor = setInterval(() => {
+  const pid = enginePid();
+  if (pid) {
+    process.send?.({ type: 'engine', enginePid: pid });
+    clearInterval(startupMonitor);
+  }
+}, 1000);
+try {
+  await registry.startAndWait();
+} finally {
+  clearInterval(startupMonitor);
+}
 process.send?.({
   type: 'ready',
   pid: process.pid,
-  enginePid: engine ? Number(engine[0]) : null,
+  enginePid: enginePid(),
 });
 process.on('message', (message) => {
+  if (message === 'publish') publish?.();
+  if (
+    message &&
+    typeof message === 'object' &&
+    'type' in message &&
+    message.type === 'clock'
+  ) {
+    virtualNow = z.object({ at: z.number() }).parse(message).at;
+    process.send?.({ type: 'clock.set', at: virtualNow });
+  }
   if (message === 'stop')
     void registry.shutdown().finally(() => process.exit(0));
 });

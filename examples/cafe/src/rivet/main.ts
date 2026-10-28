@@ -27,7 +27,7 @@ if (values.help) {
 pnpm cafe:rivet --open --customers 6 --baristas 2
 Options: --key NAME --port PORT --storage PATH --endpoint URL
          --customers N --baristas N --tick-ms N --open --no-inspect
-Commands: status | arrive latte | arrive espresso | cancel order-1
+Commands: status | receipt REQUEST_ID | arrive latte | arrive espresso | cancel order-1
           break espresso | repair espresso | close | crash | quit
 Restart with the same key and storage to resume. Use another key for a new café.
 `);
@@ -140,6 +140,12 @@ async function main() {
         );
         return;
       }
+      if (command === 'receipt') {
+        process.stdout.write(
+          `${JSON.stringify(await handle.getCommand(argument ?? ''))}\n`,
+        );
+        return;
+      }
       const raw: unknown = line.trim().startsWith('{')
         ? JSON.parse(line)
         : command === 'arrive'
@@ -166,6 +172,6 @@ async function main() {
   });
   await poll();
   process.stdout.write(
-    'Commands: status, arrive latte, break espresso, repair espresso, crash, quit.\n',
+    'Commands: status, receipt REQUEST_ID, arrive latte, break espresso, repair espresso, crash, quit.\n',
   );
 }

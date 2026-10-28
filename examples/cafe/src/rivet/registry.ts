@@ -34,6 +34,18 @@ const commandRowSchema = z.object({
   accepted_at: z.number(),
 });
 const requestIdSchema = z.string().min(1).max(200);
+const receiptRowSchema = commandRowSchema.extend({
+  processed: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+});
+const receiptBase = z.object({ id: z.string(), acceptedAt: z.number() });
+export const commandReceiptSchema = z.discriminatedUnion('status', [
+  receiptBase.extend({ status: z.literal('pending') }),
+  receiptBase.extend({ status: z.literal('delivered') }),
+  receiptBase.extend({
+    status: z.literal('rejected'),
+    reason: z.literal('cafe_closed'),
+  }),
+]);
 export const viewSchema = z.object({
   actors: z.array(
     z.object({
@@ -67,8 +79,11 @@ export function createCafeRegistry(
     afterPaymentResponse?: (kind: 'charge' | 'refund', orderId: string) => void;
     onView?: (view: RivetCafeView) => void;
     onDelivery?: (delivery: Delivery) => void;
+    beforePublish?: (view: RivetCafeView) => Promise<void>;
+    now?: () => number;
   } = {},
 ) {
+  const now = options.now ?? Date.now;
   const endpoint =
     options.endpoint ?? `http://127.0.0.1:${options.enginePort ?? 6480}`;
   const cafe = actor({
@@ -80,7 +95,7 @@ export function createCafeRegistry(
         executionId: randomUUID(),
         input: parsed.config,
         inspect: parsed.inspect,
-        startedAt: Date.now(),
+        startedAt: now(),
         roomId: randomUUID(),
         producerId: randomUUID(),
       });
@@ -162,6 +177,7 @@ export function createCafeRegistry(
         });
       try {
         await execution.start();
+        await options.beforePublish?.(view());
         await context.step('initial-view', async (step) => {
           await step.db.execute(
             'INSERT OR REPLACE INTO published VALUES (1, ?)',
@@ -181,10 +197,10 @@ export function createCafeRegistry(
                 ? commandRowSchema.parse(rows[0])
                 : undefined;
               const timer = execution.nextTimer;
-              const now = Date.now();
+              const sampledAt = now();
               if (
                 timer &&
-                timer.at <= now &&
+                timer.at <= sampledAt &&
                 (!command || timer.at <= command.accepted_at)
               )
                 return timer;
@@ -201,6 +217,7 @@ export function createCafeRegistry(
           if (delivery) {
             options.onDelivery?.(delivery);
             await execution.deliver(delivery);
+            await options.beforePublish?.(view());
             await context.step(`publish:${turn}`, async (step) => {
               await step.db.transaction(
                 async (transaction) => {
@@ -213,6 +230,10 @@ export function createCafeRegistry(
                       'UPDATE commands SET processed=1 WHERE id=?',
                       delivery.commandId,
                     );
+                  if (view().status !== 'active')
+                    await transaction.execute(
+                      'UPDATE commands SET processed=2 WHERE processed=0',
+                    );
                 },
                 { name: 'publish' },
               );
@@ -224,7 +245,7 @@ export function createCafeRegistry(
               names: ['wake'],
               count: 32,
               timeout: timer
-                ? Math.min(1000, Math.max(1, timer.at - Date.now()))
+                ? Math.min(1000, Math.max(1, timer.at - now()))
                 : 1000,
             });
           }
@@ -243,17 +264,22 @@ export function createCafeRegistry(
         const acceptedAt = await context.db.transaction(
           async (transaction) => {
             const rows = await transaction.execute(
-              'SELECT id, event, accepted_at FROM commands WHERE id=?',
+              'SELECT id, event, accepted_at, processed FROM commands WHERE id=?',
               id,
             );
             const existing = rows[0]
-              ? commandRowSchema.parse(rows[0])
+              ? receiptRowSchema.parse(rows[0])
               : undefined;
             if (existing) {
               if (existing.event !== payload)
                 throw new UserError(
                   'Request ID already belongs to another command.',
                   { code: 'conflicting_command' },
+                );
+              if (existing.processed === 2)
+                throw new UserError(
+                  'Command rejected because the café closed.',
+                  { code: 'cafe_closed' },
                 );
               return existing.accepted_at;
             }
@@ -275,7 +301,7 @@ export function createCafeRegistry(
               if (viewSchema.parse(JSON.parse(row.view)).status !== 'active')
                 throw new UserError('Café is closed.', { code: 'cafe_closed' });
             }
-            const at = Date.now();
+            const at = now();
             await transaction.execute(
               'INSERT INTO commands (id,event,accepted_at) VALUES (?,?,?)',
               id,
@@ -299,6 +325,28 @@ export function createCafeRegistry(
               JSON.parse(z.object({ view: z.string() }).parse(rows[0]).view),
             )
           : null;
+      },
+      getCommand: async (
+        context,
+        requestId: string,
+      ): Promise<z.infer<typeof commandReceiptSchema> | null> => {
+        const rows = await context.db.execute(
+          'SELECT id, event, accepted_at, processed FROM commands WHERE id=?',
+          requestIdSchema.parse(requestId),
+        );
+        if (!rows[0]) return null;
+        const row = receiptRowSchema.parse(rows[0]);
+        return commandReceiptSchema.parse({
+          id: row.id,
+          acceptedAt: row.accepted_at,
+          status:
+            row.processed === 0
+              ? 'pending'
+              : row.processed === 1
+                ? 'delivered'
+                : 'rejected',
+          ...(row.processed === 2 ? { reason: 'cafe_closed' } : {}),
+        });
       },
       info: (context) => metadataSchema.parse(context.state),
     },

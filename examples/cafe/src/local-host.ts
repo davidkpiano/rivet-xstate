@@ -1,27 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { setImmediate } from 'node:timers/promises';
-import {
-  deliverEvent,
-  type AnyActorLogic,
-  type InspectionEvent,
-  type Snapshot,
-} from 'xstate';
-import { createDurable, type DurableExecution } from 'xstate/durable';
+import { type AnyActorLogic, type InspectionEvent } from 'xstate';
+import { CafeExecution } from './execution-core.ts';
 import { CafeStore, type Delivery } from './store.ts';
 
-import { serializable, recordActor, type ActorView } from './inspection.ts';
+import { serializable } from './inspection.ts';
 
 /** One bounded execution. Every nondeterministic delivery is durable before application. */
 export class LocalDurableHost {
-  readonly execution: DurableExecution<AnyActorLogic>;
-  readonly actors = new Map<string, ActorView>();
-  private snapshot: Snapshot<unknown> | undefined;
-  private logicalNow: number;
+  private readonly core: CafeExecution;
   private turn = 0;
   private operation = 0;
   private timers = new Map<string, { address: string; key: string }>();
   private pendingLogic = new Set<Promise<unknown>>();
-  private rootMailbox: Array<{ type: string }> = [];
   private serial = Promise.resolve();
   private failure: unknown;
   private closed = false;
@@ -38,17 +29,13 @@ export class LocalDurableHost {
   ) {
     const stored = options.store.run;
     const executionId = stored?.executionId ?? randomUUID();
-    this.logicalNow = stored?.startedAt ?? this.now();
-    this.execution = createDurable(
-      options.logic,
-      {
-        executionId,
-        now: () => this.logicalNow,
-        executeAction: (action, _metadata, runtime) => action.exec(runtime),
-        enqueueRootEvent: (_source, event) => {
-          this.rootMailbox.push(event);
-        },
-        waitForEvent: () => this.rootMailbox.shift() ?? { type: 'HOST.IDLE' },
+    const startedAt = stored?.startedAt ?? this.now();
+    this.core = new CafeExecution({
+      logic: options.logic,
+      input: options.input,
+      executionId,
+      startedAt,
+      runtime: {
         scheduleTimer: (source, timer, delay) => {
           const identity = `${source.address}:${JSON.stringify(timer)}`;
           const key = `${this.turn}:${this.operation++}:${identity}`;
@@ -57,7 +44,7 @@ export class LocalDurableHost {
             key,
             source.address,
             timer,
-            this.logicalNow + delay,
+            this.core.now + delay,
           );
         },
         cancelTimer: (source, timer) => {
@@ -118,20 +105,19 @@ export class LocalDurableHost {
           );
           return pending;
         },
-        deadLetter: (_source, target, event, reason) => {
-          if (reason !== 'stopped')
-            throw new Error(
-              `Rejected ${event.type} for ${target?.address}: ${reason}`,
-            );
-        },
       },
-      {
-        inspect: (event) => {
-          recordActor(this.actors, event);
-          options.inspect?.(event);
-        },
+      drainLogic: async (execution) => {
+        if (this.pendingLogic.size) {
+          await Promise.allSettled([...this.pendingLogic]);
+          await execution.executeEffects([]);
+        }
       },
-    );
+      hasPendingLogic: () => this.pendingLogic.size > 0,
+      yield: async () => {
+        await setImmediate();
+      },
+      inspect: options.inspect,
+    });
     const version = this.execution.machineVersion;
     if (!version) throw new Error('A durable machine must declare a version.');
     if (stored) {
@@ -151,7 +137,7 @@ export class LocalDurableHost {
         machineId: this.execution.machineId,
         machineVersion: version,
         input: options.input,
-        startedAt: this.logicalNow,
+        startedAt,
         roomId: randomUUID(),
         producerId: randomUUID(),
       });
@@ -162,76 +148,29 @@ export class LocalDurableHost {
     return this.options.now?.() ?? Date.now();
   }
 
+  get execution() {
+    return this.core.execution;
+  }
+
+  get actors() {
+    return this.core.actors;
+  }
+
   async start(): Promise<void> {
-    const [snapshot, effects] = this.execution.initialTransition(
-      this.options.input,
-    );
-    this.snapshot = snapshot;
-    await this.execution.executeEffects(effects);
-    await this.drain();
+    await this.core.start();
     for (const delivery of this.options.store.history())
       await this.apply(delivery);
     this.options.onTurn?.(this);
   }
 
-  private async drain(): Promise<void> {
-    let idlePasses = 0;
-    for (;;) {
-      if (this.pendingLogic.size) {
-        await Promise.allSettled([...this.pendingLogic]);
-        await this.execution.executeEffects([]);
-      }
-      const event = await this.execution.waitForEvent();
-      if (event.type === 'HOST.IDLE') {
-        // Async completion handlers publish through the actor mailbox after their body settles.
-        await this.execution.executeEffects([]);
-        await setImmediate();
-        if (this.pendingLogic.size || this.rootMailbox.length) continue;
-        if (++idlePasses >= 2) break;
-        continue;
-      }
-      idlePasses = 0;
-      if (!this.snapshot) throw new Error('Execution has not started.');
-      const [snapshot, effects] = this.execution.transition(
-        this.snapshot,
-        event,
-      );
-      this.snapshot = snapshot;
-      await this.execution.executeEffects(effects);
-    }
-    if (this.snapshot?.status === 'error') throw this.snapshot.error;
-  }
-
   private async apply(delivery: Delivery): Promise<void> {
-    if (!this.snapshot) throw new Error('Execution has not started.');
     this.turn = delivery.seq;
     this.operation = 0;
-    this.logicalNow = delivery.at;
     if (delivery.event.type === 'xstate.timer') {
       const { type: _type, ...timer } = delivery.event;
       this.timers.delete(`${delivery.address}:${JSON.stringify(timer)}`);
     }
-    if (delivery.address === this.execution.rootAddress) {
-      const [snapshot, effects] = this.execution.transition(
-        this.snapshot,
-        delivery.event,
-      );
-      this.snapshot = snapshot;
-      await this.execution.executeEffects(effects);
-    } else {
-      const target = this.execution.getActorRef(
-        this.snapshot,
-        delivery.address,
-      );
-      if (target)
-        deliverEvent(
-          delivery.event.type === 'xstate.timer' ? target : undefined,
-          target,
-          delivery.event,
-        );
-      await this.execution.executeEffects([]);
-    }
-    await this.drain();
+    await this.core.deliver(delivery);
     this.options.onTurn?.(this);
   }
 

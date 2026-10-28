@@ -1,0 +1,286 @@
+{
+  "sourceRevision": "3e5482714377dd28d58ff0c861aa5f0ea08633f5",
+  "input": {
+    "customers": 3,
+    "baristas": 2,
+    "tickMs": 10,
+    "arrivalTicks": 2,
+    "patienceTicks": 200,
+    "breakAfterTicks": 0,
+    "repairTicks": 8
+  },
+  "tables": {
+    "metadata": [
+      {
+        "key": "run",
+        "value": "{\"executionId\":\"5b07ed46-3fa3-4ebc-823a-a9330b4136bb\",\"machineId\":\"cafe\",\"machineVersion\":\"1\",\"input\":{\"customers\":3,\"baristas\":2,\"tickMs\":10,\"arrivalTicks\":2,\"patienceTicks\":200,\"breakAfterTicks\":0,\"repairTicks\":8},\"startedAt\":1000,\"roomId\":\"287310e3-b711-449d-b669-f0efb5cbd6b7\",\"producerId\":\"4ba4b2be-a414-4a54-a7b5-6696fd9283d5\"}"
+      }
+    ],
+    "events": [
+      {
+        "seq": 1,
+        "at": 1020,
+        "address": "cafe",
+        "payload": "{\"type\":\"xstate.timer\",\"id\":\"next-arrival\"}",
+        "source": "timer:0:0:cafe:{\"id\":\"next-arrival\"}"
+      },
+      {
+        "seq": 2,
+        "at": 1020,
+        "address": "cafe/order-1/payment-charge",
+        "payload": "{\"type\":\"xstate.timer\",\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}",
+        "source": "timer:0:2:cafe/order-1/payment-charge:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}"
+      },
+      {
+        "seq": 3,
+        "at": 1040,
+        "address": "cafe",
+        "payload": "{\"type\":\"xstate.timer\",\"id\":\"next-arrival\"}",
+        "source": "timer:1:0:cafe:{\"id\":\"next-arrival\"}"
+      },
+      {
+        "seq": 4,
+        "at": 1040,
+        "address": "cafe/order-2/payment-charge",
+        "payload": "{\"type\":\"xstate.timer\",\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}",
+        "source": "timer:2:1:cafe/order-2/payment-charge:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}"
+      },
+      {
+        "seq": 5,
+        "at": 1050,
+        "address": "cafe/barista-1",
+        "payload": "{\"type\":\"xstate.timer\",\"event\":{\"type\":\"xstate.after\",\"delay\":\"grind\",\"stateId\":\"barista.working.grinding\"}}",
+        "source": "timer:2:2:cafe/barista-1:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"grind\",\"stateId\":\"barista.working.grinding\"}}"
+      },
+      {
+        "seq": 6,
+        "at": 1060,
+        "address": "cafe/order-3/payment-charge",
+        "payload": "{\"type\":\"xstate.timer\",\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}",
+        "source": "timer:4:1:cafe/order-3/payment-charge:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}"
+      },
+      {
+        "seq": 7,
+        "at": 1080,
+        "address": "cafe/barista-2",
+        "payload": "{\"type\":\"xstate.timer\",\"event\":{\"type\":\"xstate.after\",\"delay\":\"grind\",\"stateId\":\"barista.working.grinding\"}}",
+        "source": "timer:5:0:cafe/barista-2:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"grind\",\"stateId\":\"barista.working.grinding\"}}"
+      }
+    ],
+    "timers": [
+      {
+        "key": "0:0:cafe:{\"id\":\"next-arrival\"}",
+        "address": "cafe",
+        "timer": "{\"id\":\"next-arrival\"}",
+        "due_at": 1020,
+        "state": "fired"
+      },
+      {
+        "key": "0:1:cafe/customer-1:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"patience\",\"stateId\":\"customer.waiting\"}}",
+        "address": "cafe/customer-1",
+        "timer": "{\"event\":{\"type\":\"xstate.after\",\"delay\":\"patience\",\"stateId\":\"customer.waiting\"}}",
+        "due_at": 3000,
+        "state": "pending"
+      },
+      {
+        "key": "0:2:cafe/order-1/payment-charge:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}",
+        "address": "cafe/order-1/payment-charge",
+        "timer": "{\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}",
+        "due_at": 1020,
+        "state": "fired"
+      },
+      {
+        "key": "1:0:cafe:{\"id\":\"next-arrival\"}",
+        "address": "cafe",
+        "timer": "{\"id\":\"next-arrival\"}",
+        "due_at": 1040,
+        "state": "fired"
+      },
+      {
+        "key": "1:1:cafe/customer-2:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"patience\",\"stateId\":\"customer.waiting\"}}",
+        "address": "cafe/customer-2",
+        "timer": "{\"event\":{\"type\":\"xstate.after\",\"delay\":\"patience\",\"stateId\":\"customer.waiting\"}}",
+        "due_at": 3020,
+        "state": "pending"
+      },
+      {
+        "key": "2:1:cafe/order-2/payment-charge:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}",
+        "address": "cafe/order-2/payment-charge",
+        "timer": "{\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}",
+        "due_at": 1040,
+        "state": "fired"
+      },
+      {
+        "key": "2:2:cafe/barista-1:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"grind\",\"stateId\":\"barista.working.grinding\"}}",
+        "address": "cafe/barista-1",
+        "timer": "{\"event\":{\"type\":\"xstate.after\",\"delay\":\"grind\",\"stateId\":\"barista.working.grinding\"}}",
+        "due_at": 1050,
+        "state": "fired"
+      },
+      {
+        "key": "3:0:cafe/customer-3:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"patience\",\"stateId\":\"customer.waiting\"}}",
+        "address": "cafe/customer-3",
+        "timer": "{\"event\":{\"type\":\"xstate.after\",\"delay\":\"patience\",\"stateId\":\"customer.waiting\"}}",
+        "due_at": 3040,
+        "state": "pending"
+      },
+      {
+        "key": "4:1:cafe/order-3/payment-charge:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}",
+        "address": "cafe/order-3/payment-charge",
+        "timer": "{\"event\":{\"type\":\"xstate.after\",\"delay\":\"tap\",\"stateId\":\"payment.tapping\"}}",
+        "due_at": 1060,
+        "state": "fired"
+      },
+      {
+        "key": "5:0:cafe/barista-2:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"grind\",\"stateId\":\"barista.working.grinding\"}}",
+        "address": "cafe/barista-2",
+        "timer": "{\"event\":{\"type\":\"xstate.after\",\"delay\":\"grind\",\"stateId\":\"barista.working.grinding\"}}",
+        "due_at": 1080,
+        "state": "fired"
+      },
+      {
+        "key": "5:1:cafe/barista-1:{\"event\":{\"type\":\"xstate.after\",\"delay\":\"extract\",\"stateId\":\"barista.working.extracting\"}}",
+        "address": "cafe/barista-1",
+        "timer": "{\"event\":{\"type\":\"xstate.after\",\"delay\":\"extract\",\"stateId\":\"barista.working.extracting\"}}",
+        "due_at": 1100,
+        "state": "pending"
+      }
+    ],
+    "results": [
+      {
+        "key": "2:0:cafe/order-1/payment-charge/charge",
+        "input": "{\"status\":\"active\",\"input\":{\"orderId\":\"order-1\",\"amount\":550},\"effects\":{\"async\":{\"status\":\"active\"}}}",
+        "output": "{\"status\":\"done\",\"value\":{\"receiptId\":\"charge:order-1\"}}"
+      },
+      {
+        "key": "4:0:cafe/order-2/payment-charge/charge",
+        "input": "{\"status\":\"active\",\"input\":{\"orderId\":\"order-2\",\"amount\":350},\"effects\":{\"async\":{\"status\":\"active\"}}}",
+        "output": "{\"status\":\"done\",\"value\":{\"receiptId\":\"charge:order-2\"}}"
+      },
+      {
+        "key": "6:0:cafe/order-3/payment-charge/charge",
+        "input": "{\"status\":\"active\",\"input\":{\"orderId\":\"order-3\",\"amount\":550},\"effects\":{\"async\":{\"status\":\"active\"}}}",
+        "output": "{\"status\":\"done\",\"value\":{\"receiptId\":\"charge:order-3\"}}"
+      }
+    ],
+    "payments": [
+      {
+        "order_id": "order-1",
+        "kind": "charge",
+        "amount": 550,
+        "receipt": "charge:order-1"
+      },
+      {
+        "order_id": "order-2",
+        "kind": "charge",
+        "amount": 350,
+        "receipt": "charge:order-2"
+      },
+      {
+        "order_id": "order-3",
+        "kind": "charge",
+        "amount": 550,
+        "receipt": "charge:order-3"
+      }
+    ]
+  },
+  "expectedRoot": {
+    "config": {
+      "customers": 3,
+      "baristas": 2,
+      "tickMs": 10,
+      "arrivalTicks": 2,
+      "patienceTicks": 200,
+      "breakAfterTicks": 0,
+      "repairTicks": 8
+    },
+    "nextCustomer": 4,
+    "automaticArrivals": 3,
+    "closing": false,
+    "orders": {
+      "order-1": {
+        "customerId": "customer-1",
+        "drink": "latte",
+        "amount": 550,
+        "status": "served",
+        "paid": true,
+        "baristaId": "barista-1",
+        "receiptId": "charge:order-1",
+        "refundReceiptId": null
+      },
+      "order-2": {
+        "customerId": "customer-2",
+        "drink": "espresso",
+        "amount": 350,
+        "status": "served",
+        "paid": true,
+        "baristaId": "barista-2",
+        "receiptId": "charge:order-2",
+        "refundReceiptId": null
+      },
+      "order-3": {
+        "customerId": "customer-3",
+        "drink": "latte",
+        "amount": 550,
+        "status": "served",
+        "paid": true,
+        "baristaId": "barista-1",
+        "receiptId": "charge:order-3",
+        "refundReceiptId": null
+      }
+    },
+    "orderRefs": {
+      "order-1": {
+        "$actor": "cafe/order-1"
+      },
+      "order-2": {
+        "$actor": "cafe/order-2"
+      },
+      "order-3": {
+        "$actor": "cafe/order-3"
+      }
+    },
+    "customerRefs": {
+      "customer-1": {
+        "$actor": "cafe/customer-1"
+      },
+      "customer-2": {
+        "$actor": "cafe/customer-2"
+      },
+      "customer-3": {
+        "$actor": "cafe/customer-3"
+      }
+    },
+    "equipment": {
+      "grinder": {
+        "$actor": "cafe/grinder"
+      },
+      "espresso": {
+        "$actor": "cafe/espresso"
+      },
+      "frother": {
+        "$actor": "cafe/frother"
+      },
+      "terminal": {
+        "$actor": "cafe/terminal"
+      }
+    },
+    "baristaRefs": {
+      "barista-1": {
+        "$actor": "cafe/barista-1"
+      },
+      "barista-2": {
+        "$actor": "cafe/barista-2"
+      }
+    },
+    "queue": [],
+    "availableBaristas": ["barista-2", "barista-1"],
+    "assignments": {},
+    "served": 3,
+    "cancelled": 0,
+    "refunded": 0,
+    "left": 0,
+    "failed": 0,
+    "departedCustomers": []
+  }
+}

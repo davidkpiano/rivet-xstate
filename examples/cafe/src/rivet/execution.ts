@@ -1,11 +1,5 @@
-import {
-  deliverEvent,
-  type AnyActorLogic,
-  type InspectionEvent,
-  type Snapshot,
-} from 'xstate';
-import { createDurable, type DurableExecution } from 'xstate/durable';
-import { recordActor, type ActorView } from '../inspection.ts';
+import { type AnyActorLogic, type InspectionEvent } from 'xstate';
+import { CafeExecution } from '../execution-core.ts';
 import { isTransportFailure } from './requests.ts';
 
 export type Delivery = {
@@ -25,15 +19,11 @@ export type LogicResult =
   | { status: 'error'; name: string; message: string };
 
 export class RivetExecution {
-  readonly execution: DurableExecution<AnyActorLogic>;
-  readonly actors = new Map<string, ActorView>();
-  private snapshot: Snapshot<unknown> | undefined;
-  private time: number;
+  private readonly core: CafeExecution;
   private turn = 0;
   private operation = 0;
   private readonly timers = new Map<string, Delivery>();
   private readonly jobs: LogicJob[] = [];
-  private readonly rootMailbox: Array<{ type: string }> = [];
 
   constructor(
     readonly options: {
@@ -49,22 +39,17 @@ export class RivetExecution {
       signal?: AbortSignal;
     },
   ) {
-    this.time = options.startedAt;
-    this.execution = createDurable(
-      options.logic,
-      {
-        executionId: options.executionId,
-        now: () => this.time,
-        executeAction: (action, _metadata, runtime) => action.exec(runtime),
-        enqueueRootEvent: (_source, event) => {
-          this.rootMailbox.push(event);
-        },
-        waitForEvent: () => this.rootMailbox.shift() ?? { type: 'HOST.IDLE' },
+    this.core = new CafeExecution({
+      logic: options.logic,
+      input: options.input,
+      executionId: options.executionId,
+      startedAt: options.startedAt,
+      runtime: {
         scheduleTimer: (source, timer, delay) => {
           const key = `${source.address}:${JSON.stringify(timer)}`;
           this.timers.set(key, {
             address: source.address,
-            at: this.time + delay,
+            at: this.core.now + delay,
             event: { type: 'xstate.timer', ...timer },
             commandId: null,
           });
@@ -85,104 +70,58 @@ export class RivetExecution {
               reject,
             });
           }),
-        deadLetter: (_source, target, event, reason) => {
-          if (reason !== 'stopped')
-            throw new Error(
-              `Rejected ${event.type} for ${target?.address}: ${reason}`,
+      },
+      drainLogic: async (execution) => {
+        while (this.jobs.length) {
+          const job = this.jobs.shift();
+          if (!job) break;
+          const result = await this.options.journal(job.key, async () => {
+            try {
+              return { status: 'done', value: await job.exec() };
+            } catch (error) {
+              this.options.signal?.throwIfAborted();
+              if (isTransportFailure(error)) throw error;
+              return {
+                status: 'error',
+                name: error instanceof Error ? error.name : 'Error',
+                message: error instanceof Error ? error.message : String(error),
+              };
+            }
+          });
+          if (result.status === 'done') job.resolve(result.value);
+          else
+            job.reject(
+              Object.assign(new Error(result.message), { name: result.name }),
             );
-        },
+          await execution.executeEffects([]);
+        }
       },
-      {
-        inspect: (event) => {
-          recordActor(this.actors, event);
-          options.inspect?.(event);
-        },
-      },
-    );
+      hasPendingLogic: () => this.jobs.length > 0,
+      yield: () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
+      inspect: options.inspect,
+    });
   }
 
-  async start(): Promise<void> {
-    const [snapshot, effects] = this.execution.initialTransition(
-      this.options.input,
-    );
-    this.snapshot = snapshot;
-    await this.execution.executeEffects(effects);
-    await this.drain();
+  get execution() {
+    return this.core.execution;
   }
 
-  private async drain(): Promise<void> {
-    let idle = 0;
-    for (;;) {
-      while (this.jobs.length) {
-        const job = this.jobs.shift();
-        if (!job) break;
-        const result = await this.options.journal(job.key, async () => {
-          try {
-            return { status: 'done', value: await job.exec() };
-          } catch (error) {
-            this.options.signal?.throwIfAborted();
-            if (isTransportFailure(error)) throw error;
-            return {
-              status: 'error',
-              name: error instanceof Error ? error.name : 'Error',
-              message: error instanceof Error ? error.message : String(error),
-            };
-          }
-        });
-        if (result.status === 'done') job.resolve(result.value);
-        else
-          job.reject(
-            Object.assign(new Error(result.message), { name: result.name }),
-          );
-        await this.execution.executeEffects([]);
-      }
-      const event = await this.execution.waitForEvent();
-      if (event.type === 'HOST.IDLE') {
-        await this.execution.executeEffects([]);
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        if (this.jobs.length || this.rootMailbox.length) continue;
-        if (++idle >= 2) break;
-        continue;
-      }
-      idle = 0;
-      if (!this.snapshot) throw new Error('Execution has not started.');
-      const [snapshot, effects] = this.execution.transition(
-        this.snapshot,
-        event,
-      );
-      this.snapshot = snapshot;
-      await this.execution.executeEffects(effects);
-    }
-    if (this.snapshot?.status === 'error') throw this.snapshot.error;
+  get actors() {
+    return this.core.actors;
+  }
+
+  start(): Promise<void> {
+    return this.core.start();
   }
 
   async deliver(delivery: Delivery): Promise<void> {
-    if (!this.snapshot) throw new Error('Execution has not started.');
-    this.time = delivery.at;
     this.turn++;
     this.operation = 0;
     if (delivery.event.type === 'xstate.timer') {
       const { type: _type, ...timer } = delivery.event;
       this.timers.delete(`${delivery.address}:${JSON.stringify(timer)}`);
     }
-    if (delivery.address === this.execution.rootAddress) {
-      const [snapshot, effects] = this.execution.transition(
-        this.snapshot,
-        delivery.event,
-      );
-      this.snapshot = snapshot;
-      await this.execution.executeEffects(effects);
-    } else {
-      const actor = this.execution.getActorRef(this.snapshot, delivery.address);
-      if (actor)
-        deliverEvent(
-          delivery.event.type === 'xstate.timer' ? actor : undefined,
-          actor,
-          delivery.event,
-        );
-      await this.execution.executeEffects([]);
-    }
-    await this.drain();
+    await this.core.deliver(delivery);
   }
 
   get nextTimer(): Delivery | undefined {
