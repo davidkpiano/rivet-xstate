@@ -155,8 +155,10 @@ The inspector connection belongs to the running Rivet actor. Workflow queue wait
 Only newly committed deliveries stream inspection events; replay does not rewind the graph or register
 existing actors again. After an actor activation or runner restart, inspection receives the current actor
 tree once, then live updates. Closing the café, actor sleep, destruction, and runner shutdown release the connection.
-The shared execution driver records checkpoints and fresh turns. The SDK resumes logical actor identities
-directly; the adapter no longer rewrites actor references or fabricates hydration transitions.
+The shared execution driver captures the complete actor tree before each delivery. When that delivery commits,
+the SDK restores its checkpoint before publishing fresh events, so the first live update after replay includes
+unchanged actors and each transition's preceding snapshot. The SDK resumes logical actor identities directly;
+the adapter does not rewrite actor references or fabricate hydration transitions.
 The pinned SDK provides these APIs; see [Durable XState hosts](../../packages/durable/README.md#sdk-dependency).
 
 ```sh

@@ -115,11 +115,14 @@ Inspection belongs to the Rivet actor activation. Workflow waits reuse the conne
 historical snapshots. The adapter calls `execution.resumeInspection(inspector)` at fresh input boundaries
 after replay and `execution.commitInspection(inspector)` after a fresh turn commits. The neutral
 driver records the actor tree automatically. A delivery replaces the previous turn's pending events;
-committing sends genuine inspection events through the SDK's `Inspector.publish` API without
-deduplicating identical fresh events. The SDK binds logical actor identities in event order, even when
+it also captures the complete actor tree before that delivery changes state. Committing first restores
+that checkpoint with `Inspector.resume`, then sends the fresh inspection events through `Inspector.publish`
+without deduplicating identical fresh events. A commit after replay therefore includes every existing actor,
+including stopped children, before publishing new events. The SDK binds logical actor identities in event order, even when
 pure transitions reconstruct actor handles, while retaining the preceding snapshot for each real event.
-Resume uses the SDK's explicit checkpoint API and discards pending replay events, so process restart
-publishes current state without invented transitions or replacement actor registrations.
+Explicit resume uses the current checkpoint and discards both pending replay events and their pre-turn
+checkpoint. An empty commit after resume stays quiet. Process restart publishes current state without
+invented transitions or replacement actor registrations.
 Relay reconnects receive the SDK's current checkpoint.
 Completion, sleep, and destruction release inspection resources.
 
