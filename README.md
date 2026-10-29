@@ -8,9 +8,10 @@ Run `pnpm --dir examples/cafe install`, then `pnpm cafe --open` or `pnpm cafe:ri
 
 <!-- reusable durable host package from packages/durable/package.json -->
 
-The café uses the reusable [Rivet durable adapter and actor host](packages/durable/README.md).
-Its registration supplies the machine and schemas; the adapter handles persistence, timers, replay,
-command receipts, and Stately inspection. A document-approval machine tests the same public API independently.
+The café uses the reusable [XState Rivet run handler](packages/durable/README.md).
+A normal `actor({ ... })` plugs in `run: xstate(machine, options)` for durable effects, timers, replay,
+and Stately inspection. Actions, schemas, database configuration, and optional request receipts remain application code.
+An unrelated approval machine and a plain actor test the same public `xstate` function.
 
 A traffic-light state machine running inside a Rivet Actor. XState supplies pure statechart logic; Rivet is the runtime.
 

@@ -121,21 +121,26 @@ Customers and equipment are XState actors within that café, rather than separat
 
 <!-- registration and application service boundary from src/rivet/registry.ts and src/rivet/services.ts -->
 
-The café registers its machine with the reusable `durableRivetActor` factory:
+The café uses a normal Rivet actor with the reusable `xstate` run handler:
 
 ```ts
-const cafe = durableRivetActor({
-  logic: (context) => openCafeLogic({ ...context, endpoint }),
-  inputSchema: cafeInputSchema,
-  eventSchema: cafeCommandSchema,
-  admission: admitCafeCommand,
-  historyVersion: 'rivet-cafe-1',
-  terminal: { code: 'cafe_closed', message: 'Café is closed.' },
+const cafe = actor({
+  createState: (_c, input: CafeInput) => input,
+  queues: { events: queue<CafeCommand>() },
+  run: xstate(cafeMachine, {
+    queue: 'events',
+    input: (c) => c.state,
+    inspect: true,
+  }),
+  actions: {
+    order: (c, event: CafeCommand) => c.queue.send('events', event),
+  },
 });
 ```
 
-Payment-client creation and closing-time admission remain application code in `services.ts`.
-The shared host owns all workflow, SQL inbox, receipt, timer, replay, and inspection mechanics.
+The runnable registry adds application request receipts and closing-time admission through `commands.ts`.
+Payment-client creation remains in `services.ts`. State, actions, SQLite tables, and lifecycle remain normal Rivet configuration.
+The shared handler owns execution, journaled effects, timers, replay, native queue consumption, and inspection.
 See the [adapter API and unrelated-machine example](../../packages/durable/README.md).
 
 The engine listens on port 6480; the runner uses 6481. Use `--port 6500` to select another pair.
@@ -144,7 +149,7 @@ Restart with the same `--key` and `--storage` to resume. The original input and 
 Use a different key for another café. Commands match the local CLI, including `crash`.
 `--no-inspect` disables the hosted Stately relay.
 
-<!-- inspector ownership and replay behavior from ../../packages/durable/src/rivet/actor.ts and ../../packages/durable/src/execution.ts -->
+<!-- inspector ownership and replay behavior from ../../packages/durable/src/rivet/run.ts and ../../packages/durable/src/execution.ts -->
 
 The inspector connection belongs to the running Rivet actor. Workflow queue waits reuse it.
 Only newly committed deliveries stream inspection events; replay does not rewind the graph or register
@@ -161,11 +166,11 @@ pnpm cafe:rivet --key morning --storage .cafe/morning --port 6500 --open
 For an existing Rivet engine, `--endpoint http://127.0.0.1:6480` starts only the runner.
 This example verifies the native engine on this computer. It does not provision a hosted Rivet deployment.
 
-Rivet workflow steps journal accepted input deliveries and async results. Its queue provides wake notifications.
-Commands commit to the actor's SQLite inbox before sending a wake notification, so a crash between those
-operations does not lose an accepted command. Repeating a command request ID with the same payload is safe.
-The acknowledgement means the command entered the durable inbox. Use `receipt REQUEST_ID` in the CLI
-or `cafe.getCommand(requestId)` to read `pending`, `delivered`, or `rejected`.
+Rivet workflow steps journal input deliveries and async results. Native queues carry the events.
+A successful `dispatch` acknowledges native enqueue. Request receipts initially report `submitting` with no accepted timestamp;
+if interrupted before enqueue, retry the same request ID explicitly. After enqueue, receipts report `pending`, `delivered`, or `rejected`.
+Repeating an ID with the same parsed payload is safe. Conflicting payloads fail.
+Use `receipt REQUEST_ID` in the CLI or `cafe.getCommand(requestId)` to inspect processing.
 Delivery does not imply a state change; for example, cancelling an unknown order has no effect.
 When the café finishes closing, its final snapshot and rejection of remaining queued commands commit
 together. Those receipts report `rejected` with reason `cafe_closed`; retrying their IDs returns that error.
@@ -174,16 +179,16 @@ Timer deadlines derive from the recorded execution clock, so replay preserves th
 The ledger commits charges and refunds using unique order/kind keys before returning receipts.
 
 RivetKit 2.3.31 can return `core/internal_error` while routing expires after a runner crash.
-The adapter and CLI use bounded retries at idempotent request boundaries. Exhausted transport errors
+The payment client and CLI use bounded retries at idempotent request boundaries. Exhausted transport errors
 remain workflow failures eligible for Rivet retry; business payment failures become journaled actor errors.
 The domain machines do not import Rivet.
 
 This demonstration keeps the complete workflow history and replays the actor tree from its start.
 It avoids Rivet's compacting loop, which would discard the history needed to rebuild that tree.
-Idle cafés poll their inbox at most once per second, adding history entries. Close bounded demonstrations
+Idle cafés wait on their native queue with a one-second timeout, adding history entries. Close bounded demonstrations
 with `close`; do not treat this as an indefinitely running production service. Async payment work is drained
 serially between input deliveries. This adapter does not implement arbitrary overlapping async work or machine migrations.
-Use a new café key when changing model semantics; bump the adapter metadata version for incompatible changes.
+Use a new café key when changing model semantics. The handler rejects incompatible protocol versions and histories from the old whole-actor factory. Existing Rivet demos require new keys or fresh storage. Local saved histories are unchanged.
 
 Cloudflare, Restate, and Temporal adapters remain follow-up work.
 

@@ -10,7 +10,7 @@ import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { cafeInputSchema } from '../model.ts';
 import { createCafeRegistry, viewSchema } from './registry.ts';
-import { retryIdempotentRivetRequest } from '@demo/xstate-durable/rivet';
+import { retryIdempotentRivetRequest } from './requests.ts';
 
 const resources: {
   directory: string;
@@ -317,6 +317,7 @@ test('commands admitted during the final transition receive a durable rejection'
     );
     expect(await cafe.handle.getCommand('late-cancel')).toEqual({
       ...accepted,
+      submittedAt: expect.any(Number),
       status: 'rejected',
       reason: 'cafe_closed',
     });
@@ -410,47 +411,59 @@ test('SIGKILL after refund response recovers one effective compensation', async 
   }
 }, 80000);
 
-test('a due timer precedes a command accepted at the identical timestamp', async () => {
-  const cafe = await fixture('tie');
+test('an event accepted before a timer retains its order when processing resumes after the deadline', async () => {
+  const cafe = await fixture('backlog', 1, 30_000);
   try {
     await cafe.handle.info();
     const initial = z
       .object({ data: viewSchema })
       .parse(await cafe.wait('fault.beforePublish')).data;
     const timer = [...initial.timers].sort((a, b) => a.at - b.at)[0];
-    expect(timer).toBeDefined();
     if (!timer) throw new Error('No initial timer.');
-    cafe.worker.send({ type: 'clock', at: timer.at });
-    await cafe.wait('clock.set');
-    const command = await cafe.handle.dispatch(
-      { type: 'cancel', orderId: 'order-1' },
-      'same-deadline',
+    const accepted = await cafe.handle.dispatch(
+      { type: 'cancel', orderId: 'unknown-order' },
+      'before-deadline',
     );
-    expect(command.acceptedAt).toBe(timer.at);
+    expect(accepted.acceptedAt).toBeLessThan(timer.at);
+    cafe.worker.send({ type: 'clock', at: timer.at + 30 });
+    await cafe.wait('clock.set');
     cafe.worker.send('publish');
     await eventually(
-      () => cafe.handle.getCommand('same-deadline'),
-      (result) => result?.status === 'delivered',
+      () => cafe.handle.getCommand('before-deadline'),
+      (receipt) => receipt?.status === 'delivered',
     );
-    const deliveries = cafe.messages.flatMap((message) => {
-      const parsed = z
-        .object({ type: z.string(), data: z.unknown().optional() })
-        .parse(message);
-      return parsed.type === 'delivery' ? [parsed.data] : [];
+    const deliveries = await eventually(
+      async () =>
+        cafe.messages.flatMap((message) => {
+          const parsed = z
+            .object({ type: z.string(), data: z.unknown().optional() })
+            .parse(message);
+          return parsed.type === 'delivery' ? [parsed.data] : [];
+        }),
+      (deliveries) =>
+        deliveries.some(
+          (delivery) => JSON.stringify(delivery) === JSON.stringify(timer),
+        ),
+    );
+    expect(deliveries[0]).toMatchObject({
+      event: { type: 'cancel', orderId: 'unknown-order' },
+      commandId: 'before-deadline',
     });
-    expect(deliveries.slice(0, 2)).toEqual([
-      timer,
-      {
-        address: 'cafe',
-        at: timer.at,
-        event: { type: 'cancel', orderId: 'order-1' },
-        commandId: 'same-deadline',
-      },
-    ]);
+    expect(z.object({ at: z.number() }).parse(deliveries[0]).at).toBeLessThan(
+      timer.at,
+    );
+    expect(
+      deliveries.find(
+        (delivery) =>
+          z.object({ commandId: z.null() }).safeParse(delivery).success,
+      ),
+    ).toEqual(timer);
+    const published = await cafe.handle.getSnapshot();
+    expect(published?.events).toBeGreaterThanOrEqual(2);
   } finally {
     await cafe.client.dispose();
   }
-}, 60000);
+}, 60_000);
 
 test('SIGKILL during extraction replays the original timer deadline', async () => {
   const cafe = await fixture('brew', 1, 200);
@@ -487,7 +500,7 @@ test('SIGKILL during extraction replays the original timer deadline', async () =
   }
 }, 80000);
 
-test('a command committed before its wake notification survives SIGKILL and a retried request ID', async () => {
+test('a command enqueued before its response survives SIGKILL and a retried request ID', async () => {
   const cafe = await fixture('command', 0);
   try {
     const info = await cafe.handle.info();
@@ -519,6 +532,54 @@ test('a command committed before its wake notification survives SIGKILL and a re
     await cafe.client.dispose();
   }
 }, 80000);
+
+test('submission interrupted before native enqueue remains unconfirmed and recovers on explicit retry', async () => {
+  const cafe = await fixture('submission', 0);
+  try {
+    await cafe.handle.info();
+    const controller = new AbortController();
+    const interrupted = cafe.handle
+      .action({
+        name: 'dispatch',
+        args: [{ type: 'arrival', drink: 'espresso' }, 'unconfirmed'],
+        signal: controller.signal,
+      })
+      .catch(() => null);
+    await cafe.wait('fault.submission');
+    controller.abort();
+    expect(await interrupted).toBeNull();
+    await cafe.client.dispose();
+    await kill(cafe.worker);
+    await start(cafe.resource, cafe.port, 'normal');
+    const resumedClient = createClient<ReturnType<typeof createCafeRegistry>>(
+      `http://127.0.0.1:${cafe.port}`,
+    );
+    const handle = resumedClient.cafe.getOrCreate([cafe.key]);
+    try {
+      const receipt = await eventually(
+        () => handle.getCommand('unconfirmed'),
+        (receipt) => receipt?.status === 'submitting',
+      );
+      expect(receipt).toMatchObject({ status: 'submitting', acceptedAt: null });
+      const accepted = await retryIdempotentRivetRequest(() =>
+        handle.dispatch({ type: 'arrival', drink: 'espresso' }, 'unconfirmed'),
+      );
+      expect(accepted.acceptedAt).toEqual(expect.any(Number));
+      await eventually(
+        () => handle.getCommand('unconfirmed'),
+        (receipt) => receipt?.status === 'delivered',
+      );
+      await eventually(
+        () => handle.getSnapshot(),
+        (view) => counts(view)?.served === 1,
+      );
+    } finally {
+      await resumedClient.dispose();
+    }
+  } finally {
+    await cafe.client.dispose();
+  }
+}, 90_000);
 
 test('inspection survives native workflow sleeps and resumes current state after runner restart', async () => {
   const cafe = await fixture('inspection', 0, 20);

@@ -1,94 +1,115 @@
-# Durable XState hosts
+# Durable XState execution
 
 <!-- package exports and supported versions from package.json and src/index.ts -->
 
-Experimental, private workspace package for XState `6.0.0-alpha.70` and RivetKit `2.3.31`.
+Private workspace experiment for XState `6.0.0-alpha.70` and RivetKit `2.3.31`.
 The neutral execution driver is exported from `@demo/xstate-durable`.
-The Rivet adapter and actor host are exported from `@demo/xstate-durable/rivet`.
-No module in this package imports the café.
+The Rivet entry point exports one runtime function, `xstate`. No module imports the café.
+A hypothetical published package could expose that function as `@xstate/rivet`.
 
-## Register a machine on Rivet
+## Use a normal Rivet actor
 
-<!-- durableRivetActor options and actions from src/rivet/actor.ts -->
+<!-- xstate signature from src/rivet/run.ts and plain consumer from ../../examples/cafe/src/fixtures/approval-worker.ts -->
 
 ```ts
-import { setup } from 'rivetkit';
-import { durableRivetActor } from '@demo/xstate-durable/rivet';
-import { approvalMachine, approvalInput, approvalEvent } from './approval.ts';
+import { actor, queue, setup } from 'rivetkit';
+import type { EventFromLogic, InputFrom } from 'xstate';
+import { xstate } from '@demo/xstate-durable/rivet';
+import { approvalMachine } from './approval.ts';
 
-const approval = durableRivetActor({
-  logic: approvalMachine,
-  inputSchema: approvalInput,
-  eventSchema: approvalEvent,
+type Input = InputFrom<typeof approvalMachine>;
+type Event = EventFromLogic<typeof approvalMachine>;
+
+const approval = actor({
+  createState: (_c, input: Input) => input,
+  queues: { events: queue<Event>() },
+  run: xstate(approvalMachine, {
+    queue: 'events',
+    input: (c) => c.state,
+    inspect: true,
+  }),
+  actions: {
+    approve: (c, reviewer: string) =>
+      c.queue.send('events', { type: 'approve', reviewer }),
+  },
 });
 
 const registry = setup({ use: { approval } });
 await registry.startAndWait();
 ```
 
-The machine and schemas define application behavior. The host supplies durable command acceptance,
-request-ID deduplication, timer ordering, journaled async results, replay, snapshot queries, and inspection.
-One Rivet actor hosts the complete XState actor tree.
+`xstate` returns a Rivet `run` handler. You own the actor's state, variables, database configuration,
+actions, other queues, broadcasts, and lifecycle hooks. One Rivet actor hosts the XState actor tree.
+The selected queue must carry the machine's event type. The input callback runs once in a journaled step.
+Its CBOR-compatible result is copied before journaling, so later actor-state mutations cannot change machine input.
+Nested objects, dates, big integers, and domain identifiers retain their values.
+Validate external input in your Rivet actions and `createState`, using your application's schemas.
 
-Create an instance with `{ config: machineInput, inspect: true }` as `createWithInput`.
-Set `inspect: false` to disable the Stately relay. Dispatch public events through
-`handle.dispatch(event, requestId)`. Reusing a request ID with the same event is safe;
-reusing it with a different event returns `conflicting_command`.
+`queue.send` confirms native durable enqueue. It does not confirm that the machine processed the event.
+Use `onSnapshot(context, view, delivery)` to publish processed state through your own state or database.
+This callback runs in a journaled step after async effects settle.
 
-`dispatch` acknowledges durable acceptance. `getCommand(requestId)` returns `pending`, `delivered`,
-or `rejected`; delivery need not cause a transition. `getSnapshot()` returns the latest committed
-actor tree, timers, event count, root status, and inspector URL. `info()` returns execution metadata.
-After termination, new commands fail with `execution_closed`; queued commands are rejected atomically
-with publication of the terminal snapshot.
+## Optional capabilities
 
-The Rivet client accepts the event schema's input type. The machine and admission hook receive its
-parsed output. Defaults and transforms run once at acceptance; replay uses the recorded result.
-RivetKit's `createWithInput` is typed as
-`unknown`; the host validates input at runtime with `inputSchema`. Events are also parsed at the RPC boundary.
+<!-- XStateOptions and logic resources from src/rivet/run.ts -->
 
-## Supply application services
+`inspect: true` connects the real Stately SDK. An inspection object accepts `name`, a `transport` factory,
+and an `enabled(context)` predicate. It does not require `createVars`, `onSleep`, or `onDestroy` hooks.
 
-<!-- logic resource lifecycle and admission hook from src/rivet/actor.ts -->
+`mapEvent(body)` supports application queue envelopes. Return `{ event, id? }` to extract the machine event
+and optionally deduplicate deliveries by an application request ID. The first delivered ID wins.
+Validate conflicting payloads in application code. Replay rebuilds the set of processed IDs.
 
-Use a logic factory when the machine needs an execution-scoped client or other resource:
+A logic factory can return `{ logic, dispose? }` when the machine needs an execution-scoped service.
+It receives `{ executionId, signal }`. Resources are disposed after each workflow reconstruction attempt.
+Application effects belong in journaled async actors. External services still require idempotency keys
+for a crash between their commit and recording the result.
 
-```ts
-const approval = durableRivetActor({
-  inputSchema: approvalInput,
-  eventSchema: approvalEvent,
-  logic: ({ executionId, signal }) => {
-    const service = openApprovalService({ executionId, signal });
-    return {
-      logic: createApprovalMachine(service),
-      dispose: () => service.close(),
-    };
-  },
-});
-```
+`historyVersion` identifies the application's replay contract. An incompatible version fails before
+input or logic creation. Start a new actor key when changing machine replay semantics.
+The adapter rejects existing native workflow history without its protocol marker. Histories from the
+previous `durableRivetActor` factory require a new actor key or fresh storage. No migration is supplied.
 
-The factory runs during workflow reconstruction. Its `dispose` callback runs when that workflow
-attempt exits. Application effects belong in journaled async actors, rather than the factory.
-External services still need idempotency for a crash between their commit and recording the async result.
+## Application request receipts
 
-An optional `admission({ event, commands })` hook applies application rules inside the command-acceptance
-transaction, after request-ID deduplication. `commands.has(event)` checks the accepted command log,
-including already delivered commands. The café uses it to reject arrivals after an accepted close command.
-`terminal` configures the terminal error code and messages. These rules stay outside the shared runtime.
+<!-- application-owned command receipts from ../../examples/cafe/src/rivet/commands.ts -->
 
-## Durability and inspection boundaries
+The café's optional command helper supplies request-ID conflict checks, closing-time admission, and receipts.
+These are application behavior, not required adapter setup. The plain approval actor uses only `xstate`.
+
+A SQL submission initially reports `submitting` with `acceptedAt: null`. Native enqueue confirms acceptance
+and supplies the accepted timestamp. Until that confirmation, an interrupted caller must retry its request ID.
+A matching retry re-enqueues safely. A processed retry returns its original acknowledgement.
+Receipts then report `pending`, `delivered`, or `rejected`. Delivery need not cause a state change.
+The terminal snapshot and rejection of unfinished submissions commit together.
+A completed machine leaves other native queued messages unconsumed. Callers that use native `enqueueAndWait`
+must supply their own terminal admission and completion policy. The café uses enqueue-only sends and SQL receipts.
+Admission examines submitted commands, including unconfirmed submissions, conservatively.
+Event transforms run at the application boundary. Replay uses recorded parsed events.
+
+## Durability boundaries
 
 <!-- replay, timer and inspection implementation from src/execution.ts and src/rivet -->
 
 `DurableActorExecution` owns logical time, root and child delivery, effect execution, mailbox draining,
 and inspection checkpoints and turn buffers.
-`RivetExecution` supplies timer scheduling and async-result journaling. `durableRivetActor` owns Rivet
-workflow steps, the durable inbox, receipts, publication, wake notifications, and actor lifecycle.
+`RivetExecution` supplies timer scheduling and async-result journaling. The `xstate` handler owns Rivet
+workflow steps, native queue consumption, publication, and inspection lifecycle.
 
-The host retains complete workflow history and reconstructs the actor tree by replay. Timers use recorded
-logical time, with due timers winning ties against commands accepted at the same timestamp. Journal keys
-and workflow step order are persistent contracts. Keep `historyVersion` unchanged for compatible moves;
-use a new actor identity or storage for incompatible machine changes. This host does not migrate machines
-or compact history.
+The handler uses native Rivet workflow journaling and a completable native queue.
+The handler journals persisted native completion after effects and publication, then settles workflow completion.
+This order also removes retained messages when a replayed workflow has no live completion callback. RivetKit `2.3.31` retains completable messages
+until completion, as implemented in its [pinned native queue source](https://github.com/rivet-dev/rivet/blob/f6926c3103809c0119f06c85f0c38ccc4671073c/rivetkit-rust/packages/rivetkit-core/src/actor/queue.rs#L615-L650).
+A native fault test kills the runner after receive and before workflow history records the event.
+Expired workflow waits check the native queue before choosing a due timer. Timer selection is journaled.
+Native queue timestamps order events against timers. Timers win equal timestamps.
+Events queued before initialization use the execution's current logical time to prevent clock reversal.
+
+The default embedded SQLite provider works. A caller's `db({ onMigrate })` can own additional tables.
+The adapter reserves `_xstate_rivet_protocol`; Rivet reserves `_rivet_wf_kv` for workflow history.
+Database providers must support the SQLite `execute` and `transaction` methods used by native workflows.
+The returned handler does not expose Rivet's workflow-specific dashboard Inspector tab or replay controls.
+Stately SDK inspection works independently.
 
 Inspection belongs to the Rivet actor activation. Workflow waits reuse the connection and do not publish
 historical snapshots. The adapter calls `execution.resumeInspection(inspector)` at fresh input boundaries
@@ -102,9 +123,9 @@ publishes current state without invented transitions or replacement actor regist
 Relay reconnects receive the SDK's current checkpoint.
 Completion, sleep, and destruction release inspection resources.
 
-The adapter drains async jobs serially. It supports the bounded async-actor pattern used by these examples;
-it does not provide overlapping long-running jobs, independently distributed child actors, or exactly-once
-arbitrary custom actions. Custom actions execute again during replay.
+The handler retains full history and drains bounded async jobs serially. Idle waits add history entries.
+It does not compact history, migrate machines, distribute child actors, or run arbitrary overlapping async jobs.
+Custom actions execute again during replay. Arbitrary external actions do not gain exactly-once execution.
 
 ### SDK dependency
 
@@ -137,20 +158,16 @@ workspace typecheck and complete test suite, and restores its original package m
 Pass optional Vitest file or test-name arguments after the tarball to narrow a rerun.
 Use the helper for further checks. A normal pnpm command can reinstall the pinned registry SDK.
 
-## Verify reuse
+## Verify
 
-<!-- unrelated consumer and native tests from ../../examples/cafe/src/fixtures/approval-worker.ts and ../../examples/cafe/src/rivet/host.test.ts -->
-
-From the repository root, run:
+<!-- native tests from ../../examples/cafe/src/rivet and repository scripts -->
 
 ```sh
 pnpm --dir examples/cafe install
-pnpm --dir examples/cafe exec vitest run src/rivet/host.test.ts
 pnpm test:cafe
 pnpm typecheck:cafe
 ```
 
-The unrelated document-approval consumer imports only the public Rivet export. Native-engine tests exercise
-event payloads, request deduplication, journaled validation, a preserved deadline across runner restart,
-terminal rejection, and an ordinary Rivet actor in the same registry. Café tests retain the payment,
-timer-ordering, crash-recovery, saved-history, and inspector lifecycle regressions.
+Native-engine tests cover the café, an unrelated approval machine, plain Rivet composition, queue acceptance,
+request conflicts, deadlines, async-effect recovery, terminal rejection, protocol compatibility, and SDK inspection.
+The local host retains its separate saved-history compatibility test.
