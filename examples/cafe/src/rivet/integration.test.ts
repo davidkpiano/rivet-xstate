@@ -156,7 +156,7 @@ async function fixture(mode: string, customers = 1, tickMs = 50) {
     patienceTicks: 200,
   });
   const handle = client.cafe.getOrCreate([key], {
-    createWithInput: { config, inspect: mode === 'inspection' },
+    createWithInput: { config, inspect: mode.startsWith('inspection') },
   });
   return { ...server, resource, port, client, handle, config, key };
 }
@@ -723,3 +723,174 @@ test('inspection survives native workflow sleeps and resumes current state after
     await cafe.client.dispose();
   }
 }, 90000);
+
+const inspectionActorSchema = z.object({
+  actorId: z.string(),
+  sessionId: z.string(),
+  parentSessionId: z.string().nullable(),
+  snapshot: z.unknown(),
+});
+const inspectionMessageSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('@statelyai.system.init'),
+    actors: z.array(inspectionActorSchema),
+  }),
+  inspectionActorSchema.extend({
+    type: z.literal('@statelyai.system.actorRegistered'),
+  }),
+  z.object({
+    type: z.literal('@statelyai.system.actorSnapshot'),
+    sessionId: z.string(),
+    event: z.object({ type: z.string() }).passthrough(),
+    snapshot: z.unknown(),
+    previousSnapshot: z.unknown(),
+  }),
+]);
+const inspectionPublicationSchema = z.object({
+  data: z.object({
+    messages: z.array(z.unknown()),
+    view: viewSchema,
+    delivery: z
+      .object({
+        address: z.string(),
+        event: z.object({ type: z.string() }).passthrough(),
+      })
+      .passthrough(),
+  }),
+});
+function committedInspectionActors(messages: unknown[]) {
+  const actors = new Map<string, z.infer<typeof inspectionActorSchema>>();
+  for (const value of messages) {
+    const result = inspectionMessageSchema.safeParse(value);
+    if (!result.success) continue;
+    const message = result.data;
+    if (message.type === '@statelyai.system.init') {
+      actors.clear();
+      for (const actor of message.actors) actors.set(actor.sessionId, actor);
+    } else if (message.type === '@statelyai.system.actorRegistered') {
+      actors.set(message.sessionId, inspectionActorSchema.parse(message));
+    } else {
+      const actor = actors.get(message.sessionId);
+      if (actor)
+        actors.set(message.sessionId, { ...actor, snapshot: message.snapshot });
+    }
+  }
+  return [...actors.values()];
+}
+
+test.each([
+  {
+    scenario: 'root',
+    customers: 0,
+    actorCount: 7,
+    actorId: 'cafe',
+    value: 'open',
+    events: ['equipment.break', 'break'],
+  },
+  {
+    scenario: 'grind',
+    customers: 1,
+    actorCount: 11,
+    actorId: 'barista-1',
+    value: { working: 'grinding' },
+    events: ['release', 'request', 'xstate.timer', 'resource.granted'],
+  },
+])(
+  'inspection checkpoints all committed actors before fresh $scenario publication after native SIGKILL',
+  async ({ scenario, customers, actorCount, actorId, value, events }) => {
+    const cafe = await fixture(`inspection-${scenario}`, customers, 100);
+    try {
+      await eventually(
+        () => cafe.handle.getSnapshot(),
+        (view) => view?.status === 'active',
+      );
+      if (scenario === 'root') {
+        await cafe.handle.dispatch(
+          { type: 'equipment.break', equipment: 'grinder' },
+          'inspection-break',
+        );
+      }
+      const fault = inspectionPublicationSchema.parse(
+        await cafe.wait('fault.inspection'),
+      ).data;
+      const committed = committedInspectionActors(fault.messages);
+      expect(committed).toHaveLength(actorCount);
+      expect(
+        committed.find((actor) => actor.actorId === 'cafe')?.snapshot,
+      ).toMatchObject({ context: { config: cafe.config } });
+      expect(
+        committed.find((actor) => actor.actorId === 'barista-1')?.snapshot,
+      ).toMatchObject({ context: { baristaId: 'barista-1', tickMs: 100 } });
+      const target = committed.find((actor) => actor.actorId === actorId);
+      expect(target?.snapshot).toMatchObject({ value });
+      await kill(cafe.worker);
+      const resumed = await start(
+        cafe.resource,
+        cafe.port,
+        'inspection-resume',
+      );
+      const first = inspectionPublicationSchema.parse(
+        await resumed.wait('inspection.firstPublication'),
+      ).data;
+      expect(first.delivery).toEqual(fault.delivery);
+      const messages = first.messages.flatMap((message) => {
+        const parsed = inspectionMessageSchema.safeParse(message);
+        return parsed.success ? [parsed.data] : [];
+      });
+      const firstSnapshot = messages.findIndex(
+        (message) => message.type === '@statelyai.system.actorSnapshot',
+      );
+      expect(firstSnapshot).toBeGreaterThanOrEqual(0);
+      const snapshots = messages.filter(
+        (message) => message.type === '@statelyai.system.actorSnapshot',
+      );
+      expect(snapshots.map((message) => message.event.type)).toEqual(events);
+      const transition = snapshots.filter(
+        (message) =>
+          message.sessionId === target?.sessionId &&
+          JSON.stringify(message.event) ===
+            JSON.stringify(fault.delivery.event),
+      );
+      expect(transition).toHaveLength(1);
+      expect.soft(transition[0]?.previousSnapshot).toEqual(target?.snapshot);
+      const checkpoint = committedInspectionActors(
+        messages.slice(0, firstSnapshot),
+      );
+      expect
+        .soft(checkpoint.map((actor) => actor.actorId).sort())
+        .toEqual(committed.map((actor) => actor.actorId).sort());
+      expect.soft(checkpoint).toHaveLength(actorCount);
+      expect
+        .soft(committedInspectionActors(first.messages))
+        .toHaveLength(actorCount);
+      const checkpointBySession = new Map(
+        checkpoint.map((actor) => [actor.sessionId, actor]),
+      );
+      expect
+        .soft(
+          [...checkpoint].sort((a, b) =>
+            a.sessionId.localeCompare(b.sessionId),
+          ),
+        )
+        .toEqual(
+          [...committed].sort((a, b) => a.sessionId.localeCompare(b.sessionId)),
+        );
+      expect
+        .soft(
+          checkpoint.filter(
+            (actor) =>
+              actor.parentSessionId &&
+              !checkpointBySession.has(actor.parentSessionId),
+          ),
+        )
+        .toEqual([]);
+    } finally {
+      for (const worker of cafe.resource.workers) {
+        if (worker.exitCode === null && worker.signalCode === null)
+          await kill(worker);
+      }
+      await cafe.client.dispose();
+    }
+  },
+  90000,
+);

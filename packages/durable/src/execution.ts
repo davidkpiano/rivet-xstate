@@ -26,6 +26,7 @@ export class DurableActorExecution {
     ActorInspectionEvent
   >();
   private readonly inspectionEvents: InspectionEvent[] = [];
+  private inspectionBaseline: InspectorActorCheckpoint[] | undefined = [];
   private snapshot: Snapshot<unknown> | undefined;
   private logicalNow: number;
   private readonly rootMailbox: Array<{ type: string }> = [];
@@ -91,8 +92,8 @@ export class DurableActorExecution {
     return this.snapshot?.status ?? 'created';
   }
 
-  resumeInspection(inspector: Inspector): void {
-    const checkpoints = [...this.inspectionActors.values()].map((actor) => ({
+  private inspectionCheckpoint(): InspectorActorCheckpoint[] {
+    return [...this.inspectionActors.values()].map((actor) => ({
       actorRef: actor.actorRef,
       rootId: actor.rootId,
       parentRef: actor.parentRef
@@ -103,12 +104,18 @@ export class DurableActorExecution {
       src: actor.src,
       snapshot: actor.snapshot,
     } satisfies InspectorActorCheckpoint));
-    inspector.resume(checkpoints);
+  }
+
+  resumeInspection(inspector: Inspector): void {
+    inspector.resume(this.inspectionCheckpoint());
+    this.inspectionBaseline = undefined;
     this.inspectionEvents.length = 0;
   }
 
   commitInspection(inspector: Inspector): void {
+    if (this.inspectionBaseline) inspector.resume(this.inspectionBaseline);
     inspector.publish(this.inspectionEvents);
+    this.inspectionBaseline = undefined;
     this.inspectionEvents.length = 0;
   }
 
@@ -153,6 +160,7 @@ export class DurableActorExecution {
     event: { type: string };
   }): Promise<void> {
     if (!this.snapshot) throw new Error('Execution has not started.');
+    this.inspectionBaseline = this.inspectionCheckpoint();
     this.inspectionEvents.length = 0;
     this.logicalNow = delivery.at;
     if (delivery.address === this.execution.rootAddress) {
