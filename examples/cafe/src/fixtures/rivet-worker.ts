@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
+import type { Delivery, DurableActorView } from '@demo/xstate-durable/rivet';
 
 const [storage, portText, mode] = process.argv.slice(2);
 if (!storage || !portText) throw new Error('Storage path and port required.');
@@ -14,16 +15,40 @@ let virtualNow = Date.now();
 let gated = false;
 let publish: (() => void) | undefined;
 let reconnectInspection: (() => void) | undefined;
+let delivery: Delivery | undefined;
+let inspectionView: DurableActorView | undefined;
+let captured = false;
+const inspectionMessages: unknown[] = [];
 const registry = createCafeRegistry({
   enginePort: port,
-  ...(mode === 'inspection'
+  ...(mode?.startsWith('inspection')
     ? {
         inspectionTransport: () => {
           process.send?.({ type: 'inspection.open' });
           return {
             ready: true,
-            send: (message: unknown) =>
-              process.send?.({ type: 'inspection.message', data: message }),
+            send: (message: unknown) => {
+              inspectionMessages.push(message);
+              process.send?.({ type: 'inspection.message', data: message });
+              if (
+                mode === 'inspection-resume' &&
+                !captured &&
+                z
+                  .object({
+                    type: z.literal('@statelyai.system.actorSnapshot'),
+                  })
+                  .safeParse(message).success
+              ) {
+                captured = true;
+                queueMicrotask(() => {
+                  freeze('inspection.firstPublication', {
+                    messages: inspectionMessages,
+                    view: inspectionView,
+                    delivery,
+                  });
+                });
+              }
+            },
             onMessage: () => () => {},
             onReady: (handler) => {
               reconnectInspection = handler;
@@ -42,6 +67,24 @@ const registry = createCafeRegistry({
   httpPort: port + 1,
   ...(mode === 'backlog' ? { now: () => virtualNow } : {}),
   beforePublish: async (view) => {
+    inspectionView = view;
+    if (
+      !gated &&
+      ((mode === 'inspection-root' &&
+        delivery?.event.type === 'equipment.break') ||
+        (mode === 'inspection-grind' &&
+          delivery?.event.type === 'xstate.timer' &&
+          z
+            .object({ event: z.object({ delay: z.literal('grind') }) })
+            .safeParse(delivery.event).success))
+    ) {
+      gated = true;
+      freeze('fault.inspection', {
+        view,
+        delivery,
+        messages: inspectionMessages,
+      });
+    }
     if (
       !gated &&
       ((mode === 'closing' && view.status === 'done') || mode === 'backlog')
@@ -76,8 +119,9 @@ const registry = createCafeRegistry({
     )
       freeze('fault.brew', view);
   },
-  onDelivery: (delivery) => {
-    process.send?.({ type: 'delivery', data: delivery });
+  onDelivery: (value) => {
+    delivery = value;
+    process.send?.({ type: 'delivery', data: value });
   },
 });
 function enginePid(): number | null {
