@@ -3,7 +3,7 @@ import type { ActorInspectionEvent, InspectionEvent } from 'xstate';
 
 type ActorRef = InspectionEvent['actorRef'];
 
-export class CafeInspection {
+export class DurableInspection {
   private readonly refs = new Map<ActorRef['sessionId'], ActorRef>();
   private hydrated = false;
 

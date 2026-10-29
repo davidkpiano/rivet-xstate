@@ -1,5 +1,6 @@
 packages:
   - .
+  - ../../packages/durable
 allowBuilds:
   cbor-extract: true
   esbuild: true

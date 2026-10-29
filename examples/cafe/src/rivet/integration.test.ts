@@ -10,7 +10,7 @@ import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { cafeInputSchema } from '../model.ts';
 import { createCafeRegistry, viewSchema } from './registry.ts';
-import { retryIdempotentRivetRequest } from './requests.ts';
+import { retryIdempotentRivetRequest } from '@demo/xstate-durable/rivet';
 
 const resources: {
   directory: string;

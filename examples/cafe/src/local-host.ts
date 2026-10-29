@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { setImmediate } from 'node:timers/promises';
 import { type AnyActorLogic, type InspectionEvent } from 'xstate';
-import { CafeExecution } from './execution-core.ts';
+import { DurableActorExecution } from '@demo/xstate-durable';
 import { CafeStore, type Delivery } from './store.ts';
 
-import { serializable } from './inspection.ts';
+import { serializable } from '@demo/xstate-durable';
 
 /** One bounded execution. Every nondeterministic delivery is durable before application. */
 export class LocalDurableHost {
-  private readonly core: CafeExecution;
+  private readonly core: DurableActorExecution;
   private turn = 0;
   private operation = 0;
   private timers = new Map<string, { address: string; key: string }>();
@@ -30,7 +30,7 @@ export class LocalDurableHost {
     const stored = options.store.run;
     const executionId = stored?.executionId ?? randomUUID();
     const startedAt = stored?.startedAt ?? this.now();
-    this.core = new CafeExecution({
+    this.core = new DurableActorExecution({
       logic: options.logic,
       input: options.input,
       executionId,

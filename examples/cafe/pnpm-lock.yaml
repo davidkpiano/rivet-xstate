@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@demo/xstate-durable':
+        specifier: workspace:*
+        version: link:../../packages/durable
       '@statelyai/sdk':
         specifier: 0.40.0
         version: 0.40.0(zod@4.3.6)
@@ -33,6 +36,21 @@ importers:
       vitest:
         specifier: 4.0.17
         version: 4.0.17(@opentelemetry/api@1.10.0)(@types/node@24.10.1)(tsx@4.21.0)(yaml@2.9.1)
+
+  ../../packages/durable:
+    dependencies:
+      '@statelyai/sdk':
+        specifier: 0.40.0
+        version: 0.40.0(zod@4.3.6)
+      rivetkit:
+        specifier: 2.3.31
+        version: 2.3.31
+      xstate:
+        specifier: 6.0.0-alpha.70
+        version: 6.0.0-alpha.70
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
 
 packages:
 

@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { createClient } from 'rivetkit/client';
 import { cafeCommandSchema, cafeInputSchema } from '../model.ts';
 import { viewSchema } from './registry.ts';
-import { retryIdempotentRivetRequest } from './requests.ts';
+import { retryIdempotentRivetRequest } from '@demo/xstate-durable/rivet';
 
 const { values } = parseArgs({
   options: {
