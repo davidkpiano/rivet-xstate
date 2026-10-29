@@ -42,6 +42,9 @@ importers:
       '@statelyai/sdk':
         specifier: 0.40.0
         version: 0.40.0(zod@4.3.6)
+      cbor-x:
+        specifier: 1.6.8
+        version: 1.6.8
       rivetkit:
         specifier: 2.3.31
         version: 2.3.31

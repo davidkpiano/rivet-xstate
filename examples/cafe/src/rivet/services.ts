@@ -1,6 +1,6 @@
 import { createClient } from 'rivetkit/client';
 import type { Registry } from 'rivetkit';
-import { retryIdempotentRivetRequest } from '@demo/xstate-durable/rivet';
+import { retryIdempotentRivetRequest } from './requests.ts';
 import { createCafeMachine, type CafeCommand } from '../model.ts';
 import { UserError } from 'rivetkit';
 import { paymentLedger } from './payments.ts';

@@ -1,32 +1,34 @@
-import { setup } from 'rivetkit';
+import { actor, queue, setup } from 'rivetkit';
 import {
-  durableRivetActor,
-  type DurableRivetActorOptions,
+  xstate,
   type DurableActorView,
+  type Delivery,
 } from '@demo/xstate-durable/rivet';
+import type { Transport } from '@statelyai/sdk/inspect';
+import { z } from 'zod';
 import {
   cafeInputSchema,
   cafeCommandSchema,
-  createCafeMachine,
+  type CafeCommand,
 } from '../model.ts';
 import { paymentLedger } from './payments.ts';
 import { openCafeLogic, admitCafeCommand } from './services.ts';
-
-export { commandReceiptSchema, viewSchema } from '@demo/xstate-durable/rivet';
+import { commandInbox, type Command, type Metadata } from './commands.ts';
+export { commandReceiptSchema, viewSchema } from './commands.ts';
 export type RivetCafeView = DurableActorView;
-
-type CafeHostOptions = Pick<
-  DurableRivetActorOptions<ReturnType<typeof createCafeMachine>>,
-  'afterCommandCommitted' | 'onView' | 'onDelivery' | 'beforePublish' | 'now'
->;
+type Input = z.infer<typeof cafeInputSchema>;
+type CafeHostOptions = {
+  afterCommandCommitted?: (id: string) => void;
+  beforeEnqueue?: (id: string) => void;
+  onView?: (view: DurableActorView) => void;
+  onDelivery?: (delivery: Delivery) => void;
+  beforePublish?: (view: DurableActorView) => Promise<void>;
+  now?: () => number;
+};
 export function createCafeRegistry(
   options: CafeHostOptions & {
     endpoint?: string;
-    inspectionTransport?: NonNullable<
-      DurableRivetActorOptions<
-        ReturnType<typeof createCafeMachine>
-      >['inspection']
-    >['transport'];
+    inspectionTransport?: () => Transport;
     enginePort?: number;
     httpPort?: number;
     afterPaymentResponse?: (kind: 'charge' | 'refund', orderId: string) => void;
@@ -34,18 +36,8 @@ export function createCafeRegistry(
 ) {
   const endpoint =
     options.endpoint ?? `http://127.0.0.1:${options.enginePort ?? 6480}`;
-  const cafe = durableRivetActor({
+  const commands = commandInbox<Input, typeof cafeCommandSchema>({
     ...options,
-    name: 'Durable XState café',
-    icon: 'coffee',
-    historyVersion: 'rivet-cafe-1',
-    logic: (context) =>
-      openCafeLogic({
-        ...context,
-        endpoint,
-        afterPaymentResponse: options.afterPaymentResponse,
-      }),
-    inputSchema: cafeInputSchema,
     eventSchema: cafeCommandSchema,
     admission: admitCafeCommand,
     terminal: {
@@ -53,10 +45,50 @@ export function createCafeRegistry(
       message: 'Café is closed.',
       rejectedMessage: 'Command rejected because the café closed.',
     },
-    inspection: {
-      name: 'Rivet durable café',
-      transport: options.inspectionTransport,
+  });
+  const cafeRun = xstate(
+    (context) =>
+      openCafeLogic({
+        ...context,
+        endpoint,
+        afterPaymentResponse: options.afterPaymentResponse,
+      }),
+    {
+      queue: 'events',
+      input: (c: { state: Metadata<Input> }) => c.state.input,
+      mapEvent: (body: Command<CafeCommand>) => ({
+        event: body.event,
+        id: body.id,
+      }),
+      inspect: {
+        name: 'Rivet durable café',
+        transport: options.inspectionTransport,
+        enabled: (c) => c.state.inspect,
+      },
+      beforePublish: options.beforePublish,
+      onDelivery: options.onDelivery,
+      now: options.now,
+      onSnapshot: async (c, view, delivery) => {
+        await commands.publish(c, view, delivery);
+        options.onView?.(view);
+      },
     },
+  );
+  const cafe = actor({
+    options: { name: 'Durable XState café', icon: 'coffee' },
+    createState: (
+      _c,
+      input: { config: z.input<typeof cafeInputSchema>; inspect?: boolean },
+    ): Metadata<Input> => ({
+      input: cafeInputSchema.parse(input.config),
+      inspect: input.inspect ?? true,
+      executionId: _c.actorId,
+      startedAt: (options.now ?? Date.now)(),
+    }),
+    db: commands.database,
+    queues: { events: queue<Command<CafeCommand>>() },
+    run: cafeRun,
+    actions: commands.actions,
   });
   return setup({
     use: { cafe, payments: paymentLedger },

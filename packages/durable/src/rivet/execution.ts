@@ -7,6 +7,7 @@ export type Delivery = {
   at: number;
   event: { type: string };
   commandId: string | null;
+  acceptedAt?: number;
 };
 type LogicJob = {
   key: string;
@@ -100,6 +101,10 @@ export class RivetExecution {
       yield: () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
       inspect: options.inspect,
     });
+  }
+
+  get now() {
+    return this.core.now;
   }
 
   get execution() {

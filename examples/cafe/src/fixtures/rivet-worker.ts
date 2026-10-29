@@ -10,7 +10,7 @@ const freeze = (type: string, data: unknown) => {
   process.kill(process.pid, 'SIGSTOP');
 };
 const port = Number(portText);
-let virtualNow = 1000;
+let virtualNow = Date.now();
 let gated = false;
 let publish: (() => void) | undefined;
 let reconnectInspection: (() => void) | undefined;
@@ -40,11 +40,11 @@ const registry = createCafeRegistry({
       }
     : {}),
   httpPort: port + 1,
-  ...(mode === 'tie' ? { now: () => virtualNow } : {}),
+  ...(mode === 'backlog' ? { now: () => virtualNow } : {}),
   beforePublish: async (view) => {
     if (
       !gated &&
-      ((mode === 'closing' && view.status === 'done') || mode === 'tie')
+      ((mode === 'closing' && view.status === 'done') || mode === 'backlog')
     ) {
       gated = true;
       await new Promise<void>((resolve) => {
@@ -52,6 +52,9 @@ const registry = createCafeRegistry({
         process.send?.({ type: 'fault.beforePublish', data: view });
       });
     }
+  },
+  beforeEnqueue: (id) => {
+    if (mode === 'submission') freeze('fault.submission', id);
   },
   afterCommandCommitted: (id) => {
     if (mode === 'command') freeze('fault.command', id);
