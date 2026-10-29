@@ -144,12 +144,15 @@ Restart with the same `--key` and `--storage` to resume. The original input and 
 Use a different key for another café. Commands match the local CLI, including `crash`.
 `--no-inspect` disables the hosted Stately relay.
 
-<!-- inspector ownership and replay behavior from ../../packages/durable/src/rivet/actor.ts and ../../packages/durable/src/rivet/inspection.ts -->
+<!-- inspector ownership and replay behavior from ../../packages/durable/src/rivet/actor.ts and ../../packages/durable/src/execution.ts -->
 
 The inspector connection belongs to the running Rivet actor. Workflow queue waits reuse it.
 Only newly committed deliveries stream inspection events; replay does not rewind the graph or register
 existing actors again. After an actor activation or runner restart, inspection receives the current actor
 tree once, then live updates. Closing the café, actor sleep, destruction, and runner shutdown release the connection.
+The shared execution driver records checkpoints and fresh turns. The SDK resumes logical actor identities
+directly; the adapter no longer rewrites actor references or fabricates hydration transitions.
+This change requires the SDK release described in [Durable XState hosts](../../packages/durable/README.md#sdk-release-prerequisite).
 
 ```sh
 pnpm cafe:rivet --key morning --storage .cafe/morning --port 6500 --open
