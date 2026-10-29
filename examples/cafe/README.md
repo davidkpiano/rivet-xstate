@@ -125,6 +125,13 @@ Restart with the same `--key` and `--storage` to resume. The original input and 
 Use a different key for another café. Commands match the local CLI, including `crash`.
 `--no-inspect` disables the hosted Stately relay.
 
+<!-- inspector ownership and replay behavior from src/rivet/registry.ts and src/rivet/inspection.ts -->
+
+The inspector connection belongs to the running Rivet actor. Workflow queue waits reuse it.
+Only newly committed deliveries stream inspection events; replay does not rewind the graph or register
+existing actors again. After an actor activation or runner restart, inspection receives the current actor
+tree once, then live updates. Closing the café, actor sleep, destruction, and runner shutdown release the connection.
+
 ```sh
 pnpm cafe:rivet --key morning --storage .cafe/morning --port 6500 --open
 ```

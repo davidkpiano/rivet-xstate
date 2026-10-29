@@ -3,7 +3,9 @@ import { actor, queue, setup, UserError, type Registry } from 'rivetkit';
 import { createClient } from 'rivetkit/client';
 import { db } from 'rivetkit/db';
 import { workflow } from 'rivetkit/workflow';
-import { type Transport, createInspector } from '@statelyai/sdk/inspect';
+import { createInspector, type Transport } from '@statelyai/sdk/inspect';
+import type { ActorInspectionEvent, InspectionEvent } from 'xstate';
+import { CafeInspection } from './inspection.ts';
 import { z } from 'zod';
 import {
   cafeInputSchema,
@@ -101,6 +103,37 @@ export function createCafeRegistry(
         producerId: randomUUID(),
       });
     },
+    createVars: (context) => {
+      const metadata = metadataSchema.parse(context.state);
+      const transport = metadata.inspect
+        ? options.inspectionTransport?.()
+        : undefined;
+      const inspector = metadata.inspect
+        ? createInspector({
+            name: 'Rivet durable café',
+            transport,
+            roomId: metadata.roomId,
+            producerId: metadata.producerId,
+            launch: 'none',
+            bidirectional: false,
+            serializeSnapshot: (snapshot) =>
+              serializable({
+                value: snapshot.value,
+                status: snapshot.status,
+                context: snapshot.context,
+                tags: snapshot.tags ? [...snapshot.tags] : [],
+              }),
+          })
+        : undefined;
+      void inspector?.ready.catch(() => {});
+      return {
+        inspection: inspector
+          ? new CafeInspection(inspector, transport)
+          : undefined,
+      };
+    },
+    onSleep: (context) => context.vars.inspection?.destroy(),
+    onDestroy: (context) => context.vars.inspection?.destroy(),
     db: db({
       onMigrate: async (database) => {
         await database.execute(
@@ -115,6 +148,10 @@ export function createCafeRegistry(
     run: workflow(async (context) => {
       const metadata = metadataSchema.parse(
         await context.step('metadata', async (step) => step.state),
+      );
+      const inspectorUrl = await context.step(
+        'inspector-url',
+        async (step) => step.vars.inspection?.inspectorUrl ?? null,
       );
       const client =
         createClient<Registry<{ payments: typeof paymentLedger }>>(endpoint);
@@ -137,42 +174,34 @@ export function createCafeRegistry(
           return result;
         },
       };
-      const inspector = metadata.inspect
-        ? createInspector({
-            name: 'Rivet durable café',
-            transport: options.inspectionTransport?.(),
-            roomId: metadata.roomId,
-            producerId: metadata.producerId,
-            launch: 'none',
-            bidirectional: false,
-            sessionIdReuse: 'always',
-            serializeSnapshot: (snapshot) =>
-              serializable({
-                value: snapshot.value,
-                status: snapshot.status,
-                context: snapshot.context,
-                tags: snapshot.tags ? [...snapshot.tags] : [],
-              }),
-          })
-        : undefined;
-      void inspector?.ready.catch(() => {});
-      const disposeInspector = () => inspector?.destroy();
-      context.abortSignal.addEventListener('abort', disposeInspector, {
-        once: true,
-      });
+      const inspectionEvents: InspectionEvent[] = [];
+      const inspectionActors = new Map<
+        InspectionEvent['actorRef']['sessionId'],
+        ActorInspectionEvent
+      >();
       const execution = new RivetExecution({
         logic: createCafeMachine(services),
         input: metadata.input,
         executionId: metadata.executionId,
         startedAt: metadata.startedAt,
         journal: (key, run) => context.step(key, async () => run()),
-        inspect: (event) => inspector?.inspect(event),
+        inspect: (event) => {
+          inspectionEvents.push(event);
+          const registration = inspectionActors.get(event.actorRef.sessionId);
+          if (event.type === '@xstate.actor')
+            inspectionActors.set(event.actorRef.sessionId, event);
+          else if (registration)
+            inspectionActors.set(event.actorRef.sessionId, {
+              ...registration,
+              snapshot: event.snapshot,
+            });
+        },
         signal: context.abortSignal,
       });
       const view = (): RivetCafeView =>
         viewSchema.parse({
           ...execution.view(),
-          inspectorUrl: inspector?.inspectorUrl ?? null,
+          inspectorUrl,
           status:
             execution.view().actors.find((entry) => entry.id === 'cafe')
               ?.status ?? 'created',
@@ -185,6 +214,7 @@ export function createCafeRegistry(
             'INSERT OR REPLACE INTO published VALUES (1, ?)',
             JSON.stringify(view()),
           );
+          step.vars.inspection?.publish(inspectionEvents);
           options.onView?.(view());
         });
         // A plain loop replays the full actor tree. Rivet's compacting loop would skip earlier turns.
@@ -192,6 +222,7 @@ export function createCafeRegistry(
           const delivery: Delivery | null = await context.step(
             `input:${turn}`,
             async (step) => {
+              step.vars.inspection?.hydrate(inspectionActors.values());
               const rows = await step.db.execute(
                 'SELECT id, event, accepted_at FROM commands WHERE processed=0 ORDER BY accepted_at, rowid LIMIT 1',
               );
@@ -216,6 +247,7 @@ export function createCafeRegistry(
               return null;
             },
           );
+          inspectionEvents.length = 0;
           if (delivery) {
             options.onDelivery?.(delivery);
             await execution.deliver(delivery);
@@ -239,6 +271,7 @@ export function createCafeRegistry(
                 },
                 { name: 'publish' },
               );
+              step.vars.inspection?.publish(inspectionEvents);
               options.onView?.(view());
             });
           } else {
@@ -252,9 +285,10 @@ export function createCafeRegistry(
             });
           }
         }
+        await context.step('inspection-complete', async (step) => {
+          step.vars.inspection?.destroy();
+        });
       } finally {
-        context.abortSignal.removeEventListener('abort', disposeInspector);
-        inspector?.destroy();
         await client.dispose();
       }
     }),
