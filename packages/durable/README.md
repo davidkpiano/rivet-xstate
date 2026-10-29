@@ -106,16 +106,18 @@ The adapter drains async jobs serially. It supports the bounded async-actor patt
 it does not provide overlapping long-running jobs, independently distributed child actors, or exactly-once
 arbitrary custom actions. Custom actions execute again during replay.
 
-### SDK release prerequisite
+### SDK dependency
 
 <!-- SDK inspection resume requirement from src/execution.ts and package.json -->
 
-This branch requires the SDK's new `Inspector.resume` and `Inspector.publish` APIs from
-[Viz PR #973](https://github.com/statelyai/viz/pull/973). They are not available in the pinned registry
-release `0.40.0`. Keep this consumer change unmerged until the SDK APIs are published, then update
-`@statelyai/sdk` in this package and `examples/cafe/package.json` and regenerate the café workspace lockfile.
-For local verification before publication, build and pack the SDK change, then temporarily install its
-tarball in a dedicated worktree. Do not commit local tarball paths or publish this private package.
+The hosts require `@statelyai/sdk` `0.42.0`, which supplies `Inspector.resume` checkpoints and
+`Inspector.publish` committed batches. This package and the café pin the same registry version.
+Install the café workspace dependencies normally; no SDK checkout or local tarball is required.
+
+### Verifying SDK changes
+
+For SDK development, build and pack the SDK change, then temporarily install its tarball in a
+dedicated worktree. Do not commit local tarball paths or publish this private package.
 
 Use Node `>=24.17.0` and pnpm. From the Viz SDK checkout, build and pack the SDK:
 

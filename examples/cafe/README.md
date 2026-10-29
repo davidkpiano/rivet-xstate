@@ -2,7 +2,7 @@
 
 <!-- dependencies and engines from package.json -->
 
-A Node café simulation using XState `6.0.0-alpha.70`, SQLite or RivetKit `2.3.31`, and `@statelyai/sdk` `0.40.0`.
+A Node café simulation using XState `6.0.0-alpha.70`, SQLite or RivetKit `2.3.31`, and `@statelyai/sdk` `0.42.0`.
 Requires Node 24.17 or newer. Payments are simulated. No provider account or API key is required.
 
 ## Run and inspect the actors
@@ -152,7 +152,7 @@ existing actors again. After an actor activation or runner restart, inspection r
 tree once, then live updates. Closing the café, actor sleep, destruction, and runner shutdown release the connection.
 The shared execution driver records checkpoints and fresh turns. The SDK resumes logical actor identities
 directly; the adapter no longer rewrites actor references or fabricates hydration transitions.
-This change requires the SDK release described in [Durable XState hosts](../../packages/durable/README.md#sdk-release-prerequisite).
+The pinned SDK provides these APIs; see [Durable XState hosts](../../packages/durable/README.md#sdk-dependency).
 
 ```sh
 pnpm cafe:rivet --key morning --storage .cafe/morning --port 6500 --open
