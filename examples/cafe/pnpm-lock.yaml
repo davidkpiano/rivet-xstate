@@ -12,8 +12,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/durable
       '@statelyai/sdk':
-        specifier: 0.40.0
-        version: 0.40.0(zod@4.3.6)
+        specifier: 0.42.0
+        version: 0.42.0(zod@4.3.6)
       rivetkit:
         specifier: 2.3.31
         version: 2.3.31
@@ -40,8 +40,8 @@ importers:
   ../../packages/durable:
     dependencies:
       '@statelyai/sdk':
-        specifier: 0.40.0
-        version: 0.40.0(zod@4.3.6)
+        specifier: 0.42.0
+        version: 0.42.0(zod@4.3.6)
       cbor-x:
         specifier: 1.6.8
         version: 1.6.8
@@ -771,8 +771,8 @@ packages:
       zod:
         optional: true
 
-  '@statelyai/sdk@0.40.0':
-    resolution: {integrity: sha512-jwrWC99TqbaTecAxWIguZBBgLN8SB2rjWYb78hVfYS5k2SY19DLeB2dGzxEA4wuqBCJboDgY8nVmz6HhlC8R+A==}
+  '@statelyai/sdk@0.42.0':
+    resolution: {integrity: sha512-YnxUHW1KH7ZbH9w/VGEi/ypQ/4wGAWFLkr7T4N6FcBSGKElMAE0Y0hccM2WkeFsh1ESSvfGv+tGOGmDisAws4g==}
     engines: {node: '>=22.4'}
     hasBin: true
     peerDependencies:
@@ -1811,7 +1811,7 @@ snapshots:
       xstate: 5.33.3
       zod: 4.3.6
 
-  '@statelyai/sdk@0.40.0(zod@4.3.6)':
+  '@statelyai/sdk@0.42.0(zod@4.3.6)':
     dependencies:
       '@statelyai/graph': 2.6.0(xstate@5.33.3)(zod@4.3.6)
       xstate: 5.33.3

@@ -581,7 +581,7 @@ test('submission interrupted before native enqueue remains unconfirmed and recov
   }
 }, 90_000);
 
-test('inspection survives native workflow sleeps and hydrates current state after runner restart', async () => {
+test('inspection survives native workflow sleeps and resumes current state after runner restart', async () => {
   const cafe = await fixture('inspection', 0, 20);
   const inspection = (messages: unknown[]) =>
     messages.flatMap((message) => {
@@ -597,6 +597,9 @@ test('inspection survives native workflow sleeps and hydrates current state afte
     messages.filter(
       (message) => z.object({ type: z.string() }).parse(message).type === type,
     ).length;
+  const checkpointSchema = z.object({
+    actors: z.array(z.object({ actorId: z.string(), snapshot: z.unknown() })),
+  });
   try {
     await eventually(
       () => cafe.handle.getSnapshot(),
@@ -649,13 +652,7 @@ test('inspection survives native workflow sleeps and hydrates current state afte
         ),
       (messages) => messages.length > checkpoints,
     );
-    const checkpoint = z
-      .object({
-        actors: z.array(
-          z.object({ actorId: z.string(), snapshot: z.unknown() }),
-        ),
-      })
-      .parse(reconnected.at(-1));
+    const checkpoint = checkpointSchema.parse(reconnected.at(-1));
     expect(checkpoint.actors).toHaveLength(
       viewSchema.parse(await cafe.handle.getSnapshot()).actors.length,
     );
@@ -673,10 +670,16 @@ test('inspection survives native workflow sleeps and hydrates current state afte
       async () => inspection(restarted.messages),
       (messages) =>
         messages.some((message) => {
-          const parsed = z
-            .object({ context: z.object({ served: z.literal(1) }) })
-            .safeParse(message.snapshot);
-          return parsed.success;
+          if (message.type !== '@statelyai.system.init') return false;
+          const parsed = checkpointSchema.safeParse(message);
+          if (!parsed.success) return false;
+          return parsed.data.actors.some(
+            (actor) =>
+              actor.actorId === 'cafe' &&
+              z
+                .object({ context: z.object({ served: z.literal(1) }) })
+                .safeParse(actor.snapshot).success,
+          );
         }),
       45000,
     );
@@ -685,20 +688,18 @@ test('inspection survives native workflow sleeps and hydrates current state afte
     const restoredSnapshots = restored.filter(
       (message) => message.type === '@statelyai.system.actorSnapshot',
     );
-    expect(restoredSnapshots).toHaveLength(
+    expect(restoredSnapshots).toHaveLength(0);
+    const restoredCheckpoint = checkpointSchema.parse(
+      restored
+        .filter((message) => message.type === '@statelyai.system.init')
+        .at(-1),
+    );
+    expect(restoredCheckpoint.actors).toHaveLength(
       viewSchema.parse(await cafe.handle.getSnapshot()).actors.length,
     );
     expect(
-      new Set(restoredSnapshots.map((message) => message.sessionId)).size,
-    ).toBe(restoredSnapshots.length);
-    expect(
-      restoredSnapshots.every(
-        (message) =>
-          z
-            .object({ event: z.object({ type: z.literal('xstate.hydrate') }) })
-            .safeParse(message).success,
-      ),
-    ).toBe(true);
+      restoredCheckpoint.actors.find((actor) => actor.actorId === 'cafe')?.snapshot,
+    ).toMatchObject({ context: { served: 1 } });
     const restoredCount = restored.length;
     await new Promise((resolve) => setTimeout(resolve, 2200));
     expect(inspection(restarted.messages)).toHaveLength(restoredCount);
@@ -711,6 +712,13 @@ test('inspection survives native workflow sleeps and hydrates current state afte
       async () => lifecycle(restarted.messages, 'inspection.close'),
       (closed) => closed === 1,
     );
+    expect(
+      inspection(restarted.messages).some(
+        (message) =>
+          message.type === '@statelyai.system.actorSnapshot' &&
+          z.object({ type: z.literal('close') }).safeParse(message.event).success,
+      ),
+    ).toBe(true);
   } finally {
     await cafe.client.dispose();
   }

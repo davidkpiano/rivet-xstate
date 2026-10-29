@@ -2,21 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { queue, type RunContext } from 'rivetkit';
 import { db } from 'rivetkit/db';
 import { workflow, type WorkflowStepContext } from 'rivetkit/workflow';
-import { createInspector, type Transport } from '@statelyai/sdk/inspect';
-import type {
-  AnyActorLogic,
-  InputFrom,
-  EventFromLogic,
-  InspectionEvent,
-  ActorInspectionEvent,
-} from 'xstate';
+import {
+  createInspector,
+  type Inspector,
+  type Transport,
+} from '@statelyai/sdk/inspect';
+import type { AnyActorLogic, InputFrom, EventFromLogic } from 'xstate';
 import { z } from 'zod';
 import { serializable } from '../inspection-view.ts';
 import { RivetExecution, type Delivery } from './execution.ts';
 import { selectDelivery } from './delivery.ts';
 import { checkProtocol } from './protocol.ts';
 import { snapshotInput } from './input.ts';
-import { DurableInspection } from './inspection.ts';
 
 type Queues<K extends string, B> = Record<K, ReturnType<typeof queue<B>>>;
 type Step<S, K extends string, B> = WorkflowStepContext<
@@ -98,7 +95,8 @@ export function xstate<
       message: { id: bigint; name: K },
       response: undefined,
     ) => Promise<void>;
-    let inspection: DurableInspection | undefined;
+    let inspector: Inspector | undefined;
+    let transport: Transport | undefined;
     const now = options.now ?? Date.now;
     const run = workflow<
       S,
@@ -121,11 +119,11 @@ export function xstate<
             ? (options.inspect.enabled?.(step) ?? true)
             : !!options.inspect,
       }));
-      if (metadata.inspect && !inspection) {
+      if (metadata.inspect && !inspector) {
         const config =
           typeof options.inspect === 'object' ? options.inspect : {};
-        const transport = config.transport?.();
-        const inspector = createInspector({
+        transport = config.transport?.();
+        inspector = createInspector({
           name: config.name ?? 'Rivet XState actor',
           transport,
           roomId: metadata.roomId,
@@ -141,7 +139,6 @@ export function xstate<
             }),
         });
         void inspector.ready.catch(() => {});
-        inspection = new DurableInspection(inspector, transport);
       }
       const resource =
         typeof logic === 'function'
@@ -150,37 +147,23 @@ export function xstate<
               signal: outer.abortSignal,
             })
           : { logic };
-      const events: InspectionEvent[] = [];
-      const actors = new Map<
-        InspectionEvent['actorRef']['sessionId'],
-        ActorInspectionEvent
-      >();
       const execution = new RivetExecution({
-        ...metadata,
         logic: resource.logic,
+        input: metadata.input,
+        executionId: metadata.executionId,
+        startedAt: metadata.startedAt,
         signal: outer.abortSignal,
         journal: (key, run) => context.step(key, async () => run()),
-        inspect: (event) => {
-          events.push(event);
-          const actor = actors.get(event.actorRef.sessionId);
-          if (event.type === '@xstate.actor')
-            actors.set(event.actorRef.sessionId, event);
-          else if (actor)
-            actors.set(event.actorRef.sessionId, {
-              ...actor,
-              snapshot: event.snapshot,
-            });
-        },
       });
       const view = (): DurableActorView => ({
         ...execution.view(),
-        inspectorUrl: inspection?.inspectorUrl ?? null,
+        inspectorUrl: inspector?.inspectorUrl ?? null,
       });
       const publish = async (key: string, delivery: Delivery | null) => {
         await options.beforePublish?.(view());
         await context.step(key, async (step) => {
           await options.onSnapshot?.(step, view(), delivery);
-          inspection?.publish(events);
+          if (inspector) execution.commitInspection(inspector);
         });
       };
       const delivered = new Set<string>();
@@ -191,9 +174,9 @@ export function xstate<
         await publish('xstate:initial', null);
         for (let turn = 0; view().status === 'active'; turn++) {
           // This step executes only at the live frontier, after historical replay.
-          await context.step(`xstate:hydrate:${turn}`, async () =>
-            inspection?.hydrate(actors.values()),
-          );
+          await context.step(`xstate:hydrate:${turn}`, async () => {
+            if (inspector) execution.resumeInspection(inspector);
+          });
           if (!pending) {
             const timer = execution.nextTimer;
             const batch = await context.queue.nextBatch(
@@ -291,7 +274,6 @@ export function xstate<
             complete = undefined;
             continue;
           }
-          events.length = 0;
           options.onDelivery?.(delivery);
           await execution.deliver(delivery);
           if (delivery.commandId) delivered.add(delivery.commandId);
@@ -301,17 +283,19 @@ export function xstate<
             complete = undefined;
           }
         }
-        await context.step('xstate:complete', async () =>
-          inspection?.hydrate(actors.values()),
-        );
+        await context.step('xstate:complete', async () => {
+          if (inspector) execution.resumeInspection(inspector);
+        });
         await complete?.();
       } finally {
         await resource.dispose?.();
       }
     });
     const destroy = () => {
-      inspection?.destroy();
-      inspection = undefined;
+      inspector?.destroy();
+      inspector = undefined;
+      transport?.destroy();
+      transport = undefined;
     };
     outer.abortSignal.addEventListener('abort', destroy, { once: true });
     try {

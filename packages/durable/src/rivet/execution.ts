@@ -1,4 +1,5 @@
 import { type AnyActorLogic, type InspectionEvent } from 'xstate';
+import type { Inspector } from '@statelyai/sdk/inspect';
 import { DurableActorExecution } from '../execution.ts';
 import { isTransportFailure } from './requests.ts';
 
@@ -117,6 +118,14 @@ export class RivetExecution {
 
   start(): Promise<void> {
     return this.core.start();
+  }
+
+  resumeInspection(inspector: Inspector): void {
+    this.core.resumeInspection(inspector);
+  }
+
+  commitInspection(inspector: Inspector): void {
+    this.core.commitInspection(inspector);
   }
 
   async deliver(delivery: Delivery): Promise<void> {

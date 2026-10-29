@@ -26,3 +26,4 @@ minimumReleaseAgeExclude:
   - '@rivetkit/virtual-websocket@2.3.31'
   - '@rivetkit/workflow-engine@2.3.31'
   - rivetkit@2.3.31
+  - '@statelyai/sdk@0.42.0'
