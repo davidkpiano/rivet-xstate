@@ -83,9 +83,9 @@ One café is one durable execution containing many co-located actors.
 The domain machines import XState and receive ordinary async payment services.
 They contain no SQLite or Stately SDK calls.
 
-<!-- shared execution mechanics from src/execution-core.ts and both provider hosts -->
+<!-- shared execution mechanics from ../../packages/durable/src/execution.ts and both provider hosts -->
 
-Both hosts use `CafeExecution` for actor creation, logical time, mailbox settling, inspection,
+Both hosts use `DurableActorExecution` from `@demo/xstate-durable` for actor creation, logical time, mailbox settling, inspection,
 and delivery routing. Providers supply timer storage and async execution/journaling hooks.
 SQLite and Rivet keep their existing journal keys, completion ordering, and persisted histories.
 
@@ -108,7 +108,7 @@ Only one process may own a database at a time.
 
 ## Run on Rivet
 
-<!-- native workflow adapter and CLI from src/rivet -->
+<!-- native workflow host from ../../packages/durable/src/rivet and CLI from src/rivet -->
 
 ```sh
 pnpm cafe:rivet --open --customers 6 --baristas 2
@@ -119,11 +119,37 @@ The same domain machines run through `createDurable`. The Stately inspector show
 Each café is a Rivet actor containing a durable workflow; its payment ledger is another Rivet actor.
 Customers and equipment are XState actors within that café, rather than separate Rivet actors.
 
+<!-- registration and application service boundary from src/rivet/registry.ts and src/rivet/services.ts -->
+
+The café registers its machine with the reusable `durableRivetActor` factory:
+
+```ts
+const cafe = durableRivetActor({
+  logic: (context) => openCafeLogic({ ...context, endpoint }),
+  inputSchema: cafeInputSchema,
+  eventSchema: cafeCommandSchema,
+  admission: admitCafeCommand,
+  historyVersion: 'rivet-cafe-1',
+  terminal: { code: 'cafe_closed', message: 'Café is closed.' },
+});
+```
+
+Payment-client creation and closing-time admission remain application code in `services.ts`.
+The shared host owns all workflow, SQL inbox, receipt, timer, replay, and inspection mechanics.
+See the [adapter API and unrelated-machine example](../../packages/durable/README.md).
+
 The engine listens on port 6480; the runner uses 6481. Use `--port 6500` to select another pair.
 Storage defaults to `examples/cafe/.cafe/rivet`. The engine remains running when the runner exits.
 Restart with the same `--key` and `--storage` to resume. The original input and inspection room are retained.
 Use a different key for another café. Commands match the local CLI, including `crash`.
 `--no-inspect` disables the hosted Stately relay.
+
+<!-- inspector ownership and replay behavior from ../../packages/durable/src/rivet/actor.ts and ../../packages/durable/src/rivet/inspection.ts -->
+
+The inspector connection belongs to the running Rivet actor. Workflow queue waits reuse it.
+Only newly committed deliveries stream inspection events; replay does not rewind the graph or register
+existing actors again. After an actor activation or runner restart, inspection receives the current actor
+tree once, then live updates. Closing the café, actor sleep, destruction, and runner shutdown release the connection.
 
 ```sh
 pnpm cafe:rivet --key morning --storage .cafe/morning --port 6500 --open

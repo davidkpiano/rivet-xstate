@@ -10,7 +10,7 @@ import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { cafeInputSchema } from '../model.ts';
 import { createCafeRegistry, viewSchema } from './registry.ts';
-import { retryIdempotentRivetRequest } from './requests.ts';
+import { retryIdempotentRivetRequest } from '@demo/xstate-durable/rivet';
 
 const resources: {
   directory: string;
@@ -156,7 +156,7 @@ async function fixture(mode: string, customers = 1, tickMs = 50) {
     patienceTicks: 200,
   });
   const handle = client.cafe.getOrCreate([key], {
-    createWithInput: { config, inspect: false },
+    createWithInput: { config, inspect: mode === 'inspection' },
   });
   return { ...server, resource, port, client, handle, config, key };
 }
@@ -519,3 +519,138 @@ test('a command committed before its wake notification survives SIGKILL and a re
     await cafe.client.dispose();
   }
 }, 80000);
+
+test('inspection survives native workflow sleeps and hydrates current state after runner restart', async () => {
+  const cafe = await fixture('inspection', 0, 20);
+  const inspection = (messages: unknown[]) =>
+    messages.flatMap((message) => {
+      const parsed = z
+        .object({
+          type: z.literal('inspection.message'),
+          data: z.object({ type: z.string() }).passthrough(),
+        })
+        .safeParse(message);
+      return parsed.success ? [parsed.data.data] : [];
+    });
+  const lifecycle = (messages: unknown[], type: string) =>
+    messages.filter(
+      (message) => z.object({ type: z.string() }).parse(message).type === type,
+    ).length;
+  try {
+    await eventually(
+      () => cafe.handle.getSnapshot(),
+      (view) => view?.status === 'active',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+    expect(lifecycle(cafe.messages, 'inspection.open')).toBe(1);
+    expect(lifecycle(cafe.messages, 'inspection.close')).toBe(0);
+    const before = inspection(cafe.messages).length;
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    expect(inspection(cafe.messages)).toHaveLength(before);
+    await cafe.handle.dispatch(
+      { type: 'arrival', drink: 'espresso' },
+      'inspection-order',
+    );
+    await eventually(
+      () => cafe.handle.getSnapshot(),
+      (view) => counts(view)?.served === 1,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const messages = inspection(cafe.messages);
+    const registrations = messages.filter(
+      (message) => message.type === '@statelyai.system.actorRegistered',
+    );
+    expect(
+      new Set(registrations.map((message) => message.sessionId)).size,
+    ).toBe(registrations.length);
+    expect(registrations.some((message) => message.replaces === true)).toBe(
+      false,
+    );
+    const snapshots = messages.filter(
+      (message) => message.type === '@statelyai.system.actorSnapshot',
+    );
+    const served = snapshots.flatMap((message) => {
+      const parsed = z
+        .object({ context: z.object({ served: z.number() }) })
+        .safeParse(message.snapshot);
+      return parsed.success ? [parsed.data.context.served] : [];
+    });
+    expect(served.at(-1)).toBe(1);
+    expect(served).toEqual([...served].sort((a, b) => a - b));
+    const checkpoints = messages.filter(
+      (message) => message.type === '@statelyai.system.init',
+    ).length;
+    cafe.worker.send('inspection.reconnect');
+    const reconnected = await eventually(
+      async () =>
+        inspection(cafe.messages).filter(
+          (message) => message.type === '@statelyai.system.init',
+        ),
+      (messages) => messages.length > checkpoints,
+    );
+    const checkpoint = z
+      .object({
+        actors: z.array(
+          z.object({ actorId: z.string(), snapshot: z.unknown() }),
+        ),
+      })
+      .parse(reconnected.at(-1));
+    expect(checkpoint.actors).toHaveLength(
+      viewSchema.parse(await cafe.handle.getSnapshot()).actors.length,
+    );
+    expect(
+      checkpoint.actors.find((actor) => actor.actorId === 'cafe')?.snapshot,
+    ).toMatchObject({ context: { served: 1 } });
+
+    await kill(cafe.worker);
+    const restarted = await start(cafe.resource, cafe.port, 'inspection');
+    await eventually(
+      () => cafe.handle.getSnapshot(),
+      (view) => counts(view)?.served === 1,
+    );
+    await eventually(
+      async () => inspection(restarted.messages),
+      (messages) =>
+        messages.some((message) => {
+          const parsed = z
+            .object({ context: z.object({ served: z.literal(1) }) })
+            .safeParse(message.snapshot);
+          return parsed.success;
+        }),
+      45000,
+    );
+    const restored = inspection(restarted.messages);
+    expect(lifecycle(restarted.messages, 'inspection.open')).toBe(1);
+    const restoredSnapshots = restored.filter(
+      (message) => message.type === '@statelyai.system.actorSnapshot',
+    );
+    expect(restoredSnapshots).toHaveLength(
+      viewSchema.parse(await cafe.handle.getSnapshot()).actors.length,
+    );
+    expect(
+      new Set(restoredSnapshots.map((message) => message.sessionId)).size,
+    ).toBe(restoredSnapshots.length);
+    expect(
+      restoredSnapshots.every(
+        (message) =>
+          z
+            .object({ event: z.object({ type: z.literal('xstate.hydrate') }) })
+            .safeParse(message).success,
+      ),
+    ).toBe(true);
+    const restoredCount = restored.length;
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    expect(inspection(restarted.messages)).toHaveLength(restoredCount);
+    await cafe.handle.dispatch({ type: 'close' }, 'inspection-close');
+    await eventually(
+      () => cafe.handle.getSnapshot(),
+      (view) => view?.status === 'done',
+    );
+    await eventually(
+      async () => lifecycle(restarted.messages, 'inspection.close'),
+      (closed) => closed === 1,
+    );
+  } finally {
+    await cafe.client.dispose();
+  }
+}, 90000);

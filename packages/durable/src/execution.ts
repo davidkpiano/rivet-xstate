@@ -9,14 +9,14 @@ import {
   type DurableExecution,
   type DurableExecutionAdapter,
 } from 'xstate/durable';
-import { recordActor, type ActorView } from './inspection.ts';
+import { recordActor, type ActorView } from './inspection-view.ts';
 
 type RuntimeHooks = Pick<
   DurableExecutionAdapter<AnyActorLogic>,
   'scheduleTimer' | 'cancelTimer' | 'cancelAllTimers' | 'runLogic'
 >;
 
-export class CafeExecution {
+export class DurableActorExecution {
   readonly execution: DurableExecution<AnyActorLogic>;
   readonly actors = new Map<string, ActorView>();
   private snapshot: Snapshot<unknown> | undefined;
@@ -66,6 +66,10 @@ export class CafeExecution {
 
   get now(): number {
     return this.logicalNow;
+  }
+
+  get status(): Snapshot<unknown>['status'] | 'created' {
+    return this.snapshot?.status ?? 'created';
   }
 
   async start(): Promise<void> {

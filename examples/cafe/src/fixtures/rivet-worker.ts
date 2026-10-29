@@ -13,8 +13,32 @@ const port = Number(portText);
 let virtualNow = 1000;
 let gated = false;
 let publish: (() => void) | undefined;
+let reconnectInspection: (() => void) | undefined;
 const registry = createCafeRegistry({
   enginePort: port,
+  ...(mode === 'inspection'
+    ? {
+        inspectionTransport: () => {
+          process.send?.({ type: 'inspection.open' });
+          return {
+            ready: true,
+            send: (message: unknown) =>
+              process.send?.({ type: 'inspection.message', data: message }),
+            onMessage: () => () => {},
+            onReady: (handler) => {
+              reconnectInspection = handler;
+              queueMicrotask(handler);
+              return () => {
+                reconnectInspection = undefined;
+              };
+            },
+            destroy: () => {
+              process.send?.({ type: 'inspection.close' });
+            },
+          };
+        },
+      }
+    : {}),
   httpPort: port + 1,
   ...(mode === 'tie' ? { now: () => virtualNow } : {}),
   beforePublish: async (view) => {
@@ -87,6 +111,7 @@ process.send?.({
 });
 process.on('message', (message) => {
   if (message === 'publish') publish?.();
+  if (message === 'inspection.reconnect') reconnectInspection?.();
   if (
     message &&
     typeof message === 'object' &&

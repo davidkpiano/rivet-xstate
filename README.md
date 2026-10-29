@@ -6,6 +6,12 @@ For the newer multi-actor durable café demo, see [examples/cafe](examples/cafe/
 It runs in Node with SQLite recovery or native Rivet workflows, and the Stately inspector.
 Run `pnpm --dir examples/cafe install`, then `pnpm cafe --open` or `pnpm cafe:rivet --open`.
 
+<!-- reusable durable host package from packages/durable/package.json -->
+
+The café uses the reusable [Rivet durable adapter and actor host](packages/durable/README.md).
+Its registration supplies the machine and schemas; the adapter handles persistence, timers, replay,
+command receipts, and Stately inspection. A document-approval machine tests the same public API independently.
+
 A traffic-light state machine running inside a Rivet Actor. XState supplies pure statechart logic; Rivet is the runtime.
 
 <!-- runtime boundary implemented by src/server/xstateActor.ts -->

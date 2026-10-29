@@ -39,7 +39,7 @@ export function recordActor(
       ? event.id
       : 'id' in event.actorRef && typeof event.actorRef.id === 'string'
         ? event.actorRef.id
-        : (event.actorRef.sessionId ?? 'unknown');
+        : event.actorRef.sessionId ?? 'unknown';
   actors.set(event.actorRef.sessionId ?? id, {
     id,
     address:

@@ -1,7 +1,7 @@
 import { RivetError, UserError } from 'rivetkit/client';
 import { expect, test, vi } from 'vitest';
-import { retryIdempotentRivetRequest } from './requests.ts';
-import { isTransportFailure } from './requests.ts';
+import { retryIdempotentRivetRequest } from '@demo/xstate-durable/rivet';
+import { isTransportFailure } from '@demo/xstate-durable/rivet';
 
 test('retries a stale gateway route using the same operation', async () => {
   const request = vi

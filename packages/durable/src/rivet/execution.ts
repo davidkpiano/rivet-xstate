@@ -1,5 +1,5 @@
 import { type AnyActorLogic, type InspectionEvent } from 'xstate';
-import { CafeExecution } from '../execution-core.ts';
+import { DurableActorExecution } from '../execution.ts';
 import { isTransportFailure } from './requests.ts';
 
 export type Delivery = {
@@ -19,7 +19,7 @@ export type LogicResult =
   | { status: 'error'; name: string; message: string };
 
 export class RivetExecution {
-  private readonly core: CafeExecution;
+  private readonly core: DurableActorExecution;
   private turn = 0;
   private operation = 0;
   private readonly timers = new Map<string, Delivery>();
@@ -39,7 +39,7 @@ export class RivetExecution {
       signal?: AbortSignal;
     },
   ) {
-    this.core = new CafeExecution({
+    this.core = new DurableActorExecution({
       logic: options.logic,
       input: options.input,
       executionId: options.executionId,
@@ -133,6 +133,7 @@ export class RivetExecution {
       actors: [...this.actors.values()],
       timers: [...this.timers.values()],
       events: this.turn,
+      status: this.core.status,
     };
   }
 }
