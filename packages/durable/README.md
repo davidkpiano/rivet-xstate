@@ -79,7 +79,8 @@ including already delivered commands. The café uses it to reject arrivals after
 
 <!-- replay, timer and inspection implementation from src/execution.ts and src/rivet -->
 
-`DurableActorExecution` owns logical time, root and child delivery, effect execution, and mailbox draining.
+`DurableActorExecution` owns logical time, root and child delivery, effect execution, mailbox draining,
+and inspection checkpoints and turn buffers.
 `RivetExecution` supplies timer scheduling and async-result journaling. `durableRivetActor` owns Rivet
 workflow steps, the durable inbox, receipts, publication, wake notifications, and actor lifecycle.
 
@@ -90,12 +91,51 @@ use a new actor identity or storage for incompatible machine changes. This host 
 or compact history.
 
 Inspection belongs to the Rivet actor activation. Workflow waits reuse the connection and do not publish
-historical snapshots. Actual activation or runner restart hydrates the current tree once. Relay reconnects
-receive the SDK's current checkpoint. Completion, sleep, and destruction release inspection resources.
+historical snapshots. The adapter calls `execution.resumeInspection(inspector)` at fresh input boundaries
+after replay and `execution.commitInspection(inspector)` after a fresh turn commits. The neutral
+driver records the actor tree automatically. A delivery replaces the previous turn's pending events;
+committing sends genuine inspection events through the SDK's `Inspector.publish` API without
+deduplicating identical fresh events. The SDK binds logical actor identities in event order, even when
+pure transitions reconstruct actor handles, while retaining the preceding snapshot for each real event.
+Resume uses the SDK's explicit checkpoint API and discards pending replay events, so process restart
+publishes current state without invented transitions or replacement actor registrations.
+Relay reconnects receive the SDK's current checkpoint.
+Completion, sleep, and destruction release inspection resources.
 
 The adapter drains async jobs serially. It supports the bounded async-actor pattern used by these examples;
 it does not provide overlapping long-running jobs, independently distributed child actors, or exactly-once
 arbitrary custom actions. Custom actions execute again during replay.
+
+### SDK dependency
+
+<!-- SDK inspection resume requirement from src/execution.ts and package.json -->
+
+The hosts require `@statelyai/sdk` `0.42.0`, which supplies `Inspector.resume` checkpoints and
+`Inspector.publish` committed batches. This package and the café pin the same registry version.
+Install the café workspace dependencies normally; no SDK checkout or local tarball is required.
+
+### Verifying SDK changes
+
+For SDK development, build and pack the SDK change, then temporarily install its tarball in a
+dedicated worktree. Do not commit local tarball paths or publish this private package.
+
+Use Node `>=24.17.0` and pnpm. From the Viz SDK checkout, build and pack the SDK:
+
+```sh
+pnpm --filter @statelyai/sdk build
+pnpm --filter @statelyai/sdk pack --pack-destination /tmp/durable-sdk
+```
+
+From this repository's dedicated worktree, verify the packed SDK:
+
+```sh
+node scripts/verify-durable-sdk.mjs /tmp/durable-sdk/statelyai-sdk-VERSION.tgz
+```
+
+Use the filename printed by `pack`. The script installs the packed SDK in this worktree, runs the café
+workspace typecheck and complete test suite, and restores its original package manifests and lockfile.
+Pass optional Vitest file or test-name arguments after the tarball to narrow a rerun.
+Use the helper for further checks. A normal pnpm command can reinstall the pinned registry SDK.
 
 ## Verify reuse
 

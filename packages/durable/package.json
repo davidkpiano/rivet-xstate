@@ -7,7 +7,7 @@
     "./rivet": "./src/rivet/index.ts"
   },
   "dependencies": {
-    "@statelyai/sdk": "0.40.0",
+    "@statelyai/sdk": "0.42.0",
     "rivetkit": "2.3.31",
     "xstate": "6.0.0-alpha.70",
     "zod": "4.3.6"

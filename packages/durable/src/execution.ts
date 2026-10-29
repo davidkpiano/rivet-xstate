@@ -1,6 +1,7 @@
 import {
   deliverEvent,
   type AnyActorLogic,
+  type ActorInspectionEvent,
   type InspectionEvent,
   type Snapshot,
 } from 'xstate';
@@ -9,6 +10,7 @@ import {
   type DurableExecution,
   type DurableExecutionAdapter,
 } from 'xstate/durable';
+import type { Inspector, InspectorActorCheckpoint } from '@statelyai/sdk/inspect';
 import { recordActor, type ActorView } from './inspection-view.ts';
 
 type RuntimeHooks = Pick<
@@ -19,6 +21,11 @@ type RuntimeHooks = Pick<
 export class DurableActorExecution {
   readonly execution: DurableExecution<AnyActorLogic>;
   readonly actors = new Map<string, ActorView>();
+  private readonly inspectionActors = new Map<
+    InspectionEvent['actorRef']['sessionId'],
+    ActorInspectionEvent
+  >();
+  private readonly inspectionEvents: InspectionEvent[] = [];
   private snapshot: Snapshot<unknown> | undefined;
   private logicalNow: number;
   private readonly rootMailbox: Array<{ type: string }> = [];
@@ -58,6 +65,18 @@ export class DurableActorExecution {
       {
         inspect: (event) => {
           recordActor(this.actors, event);
+          this.inspectionEvents.push(event);
+          const registration = this.inspectionActors.get(
+            event.actorRef.sessionId,
+          );
+          if (event.type === '@xstate.actor')
+            this.inspectionActors.set(event.actorRef.sessionId, event);
+          else if (registration)
+            this.inspectionActors.set(event.actorRef.sessionId, {
+              ...registration,
+              actorRef: event.actorRef,
+              snapshot: event.snapshot,
+            });
           options.inspect?.(event);
         },
       },
@@ -70,6 +89,27 @@ export class DurableActorExecution {
 
   get status(): Snapshot<unknown>['status'] | 'created' {
     return this.snapshot?.status ?? 'created';
+  }
+
+  resumeInspection(inspector: Inspector): void {
+    const checkpoints = [...this.inspectionActors.values()].map((actor) => ({
+      actorRef: actor.actorRef,
+      rootId: actor.rootId,
+      parentRef: actor.parentRef
+        ? this.inspectionActors.get(actor.parentRef.sessionId)?.actorRef ??
+          actor.parentRef
+        : null,
+      id: actor.id,
+      src: actor.src,
+      snapshot: actor.snapshot,
+    } satisfies InspectorActorCheckpoint));
+    inspector.resume(checkpoints);
+    this.inspectionEvents.length = 0;
+  }
+
+  commitInspection(inspector: Inspector): void {
+    inspector.publish(this.inspectionEvents);
+    this.inspectionEvents.length = 0;
   }
 
   async start(): Promise<void> {
@@ -113,6 +153,7 @@ export class DurableActorExecution {
     event: { type: string };
   }): Promise<void> {
     if (!this.snapshot) throw new Error('Execution has not started.');
+    this.inspectionEvents.length = 0;
     this.logicalNow = delivery.at;
     if (delivery.address === this.execution.rootAddress) {
       const [snapshot, effects] = this.execution.transition(
