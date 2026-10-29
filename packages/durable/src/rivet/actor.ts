@@ -5,13 +5,10 @@ import { db } from 'rivetkit/db';
 import { workflow } from 'rivetkit/workflow';
 import { createInspector, type Transport } from '@statelyai/sdk/inspect';
 import type {
-  ActorInspectionEvent,
-  InspectionEvent,
   AnyActorLogic,
   InputFrom,
   EventFromLogic,
 } from 'xstate';
-import { DurableInspection } from './inspection.ts';
 import { z } from 'zod';
 import { serializable } from '../inspection-view.ts';
 import { RivetExecution, type Delivery } from './execution.ts';
@@ -138,7 +135,7 @@ export function durableRivetActor<
     createVars: (context) => {
       const metadata = context.state;
       metadataSchema.parse(metadata);
-      const transport = metadata.inspect
+      let transport = metadata.inspect
         ? options.inspection?.transport?.()
         : undefined;
       const inspector = metadata.inspect
@@ -160,14 +157,18 @@ export function durableRivetActor<
           })
         : undefined;
       void inspector?.ready.catch(() => {});
+      const destroyInspection = () => {
+        inspector?.destroy();
+        transport?.destroy();
+        transport = undefined;
+      };
       return {
-        inspection: inspector
-          ? new DurableInspection(inspector, transport)
-          : undefined,
+        inspector,
+        destroyInspection,
       };
     },
-    onSleep: (context) => context.vars.inspection?.destroy(),
-    onDestroy: (context) => context.vars.inspection?.destroy(),
+    onSleep: (context) => context.vars.destroyInspection(),
+    onDestroy: (context) => context.vars.destroyInspection(),
     db: db({
       onMigrate: async (database) => {
         await database.execute(
@@ -187,7 +188,7 @@ export function durableRivetActor<
       metadataSchema.parse(metadata);
       const inspectorUrl = await context.step(
         'inspector-url',
-        async (step) => step.vars.inspection?.inspectorUrl ?? null,
+        async (step) => step.vars.inspector?.inspectorUrl ?? null,
       );
       const resource =
         typeof options.logic === 'function'
@@ -196,28 +197,12 @@ export function durableRivetActor<
               signal: context.abortSignal,
             })
           : { logic: options.logic };
-      const inspectionEvents: InspectionEvent[] = [];
-      const inspectionActors = new Map<
-        InspectionEvent['actorRef']['sessionId'],
-        ActorInspectionEvent
-      >();
       const execution = new RivetExecution({
         logic: resource.logic,
         input: metadata.input,
         executionId: metadata.executionId,
         startedAt: metadata.startedAt,
         journal: (key, run) => context.step(key, async () => run()),
-        inspect: (event) => {
-          inspectionEvents.push(event);
-          const registration = inspectionActors.get(event.actorRef.sessionId);
-          if (event.type === '@xstate.actor')
-            inspectionActors.set(event.actorRef.sessionId, event);
-          else if (registration)
-            inspectionActors.set(event.actorRef.sessionId, {
-              ...registration,
-              snapshot: event.snapshot,
-            });
-        },
         signal: context.abortSignal,
       });
       const view = (): DurableActorView =>
@@ -242,7 +227,8 @@ export function durableRivetActor<
             },
             { name: 'publish' },
           );
-          step.vars.inspection?.publish(inspectionEvents);
+          if (step.vars.inspector)
+            execution.commitInspection(step.vars.inspector);
           options.onView?.(view());
         });
         // A plain loop replays the full actor tree. Rivet's compacting loop would skip earlier turns.
@@ -250,7 +236,8 @@ export function durableRivetActor<
           const delivery: Delivery | null = await context.step(
             `input:${turn}`,
             async (step) => {
-              step.vars.inspection?.hydrate(inspectionActors.values());
+              if (step.vars.inspector)
+                execution.resumeInspection(step.vars.inspector);
               const rows = await step.db.execute(
                 'SELECT id, event, accepted_at FROM commands WHERE processed=0 ORDER BY accepted_at, rowid LIMIT 1',
               );
@@ -278,7 +265,6 @@ export function durableRivetActor<
               return null;
             },
           );
-          inspectionEvents.length = 0;
           if (delivery) {
             options.onDelivery?.(delivery);
             await execution.deliver(delivery);
@@ -302,7 +288,8 @@ export function durableRivetActor<
                 },
                 { name: 'publish' },
               );
-              step.vars.inspection?.publish(inspectionEvents);
+              if (step.vars.inspector)
+                execution.commitInspection(step.vars.inspector);
               options.onView?.(view());
             });
           } else {
@@ -317,7 +304,7 @@ export function durableRivetActor<
           }
         }
         await context.step('inspection-complete', async (step) => {
-          step.vars.inspection?.destroy();
+          step.vars.destroyInspection();
         });
       } finally {
         await resource.dispose?.();
