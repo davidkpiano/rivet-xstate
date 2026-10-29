@@ -15,6 +15,18 @@ let gated = false;
 let publish: (() => void) | undefined;
 const registry = createCafeRegistry({
   enginePort: port,
+  ...(mode === 'inspection' ? {
+    inspectionTransport: () => {
+      process.send?.({ type: 'inspection.open' });
+      return {
+        ready: true,
+        send: (message: unknown) => process.send?.({ type: 'inspection.message', data: message }),
+        onMessage: () => () => {},
+        onReady: () => () => {},
+        destroy: () => { process.send?.({ type: 'inspection.close' }); },
+      };
+    },
+  } : {}),
   httpPort: port + 1,
   ...(mode === 'tie' ? { now: () => virtualNow } : {}),
   beforePublish: async (view) => {

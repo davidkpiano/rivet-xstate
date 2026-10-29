@@ -3,7 +3,7 @@ import { actor, queue, setup, UserError, type Registry } from 'rivetkit';
 import { createClient } from 'rivetkit/client';
 import { db } from 'rivetkit/db';
 import { workflow } from 'rivetkit/workflow';
-import { createInspector } from '@statelyai/sdk/inspect';
+import { type Transport, createInspector } from '@statelyai/sdk/inspect';
 import { z } from 'zod';
 import {
   cafeInputSchema,
@@ -73,6 +73,7 @@ export type RivetCafeView = z.infer<typeof viewSchema>;
 export function createCafeRegistry(
   options: {
     endpoint?: string;
+    inspectionTransport?: () => Transport;
     enginePort?: number;
     httpPort?: number;
     afterCommandCommitted?: (commandId: string) => void;
@@ -139,6 +140,7 @@ export function createCafeRegistry(
       const inspector = metadata.inspect
         ? createInspector({
             name: 'Rivet durable café',
+            transport: options.inspectionTransport?.(),
             roomId: metadata.roomId,
             producerId: metadata.producerId,
             launch: 'none',
