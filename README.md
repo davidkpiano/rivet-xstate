@@ -1,4 +1,4 @@
-# XState v6 alpha × RivetKit
+# XState v6 beta × RivetKit
 
 <!-- durable cafe example entrypoint and scripts from examples/cafe/package.json -->
 
@@ -18,11 +18,11 @@ A traffic-light state machine running inside a Rivet Actor. XState supplies pure
 <!-- runtime boundary implemented by src/server/xstateActor.ts -->
 
 ```text
-XState: initialTransition() / transition() → [snapshot, actions]
-Rivet:  persisted state + event delivery + action execution + durable schedules
+XState: initialTransition() / transition() → [snapshot, effects]
+Rivet:  persisted state + event delivery + effect execution + durable schedules
 ```
 
-There is no `createActor()`. `createXStateActor()` accepts an XState machine, persists its snapshot in `c.state`, and executes every returned action through Rivet. Delayed `after:` transitions become `c.schedule.after(...)` calls; cancellation becomes `c.schedule.cancel(...)`.
+There is no `createActor()`. `createXStateActor()` accepts an XState machine, persists its snapshot in `c.state`, and executes every returned effect through Rivet. Delayed `after:` transitions become `c.schedule.after(...)` calls; cancellation becomes `c.schedule.cancel(...)`.
 
 ## Run
 
@@ -34,6 +34,7 @@ pnpm dev
 ```
 
 Open <http://localhost:5173>. Rivet's local inspector is at <http://localhost:6420>.
+Use fresh Rivet storage for the traffic-light demo when upgrading from alpha. Beta uses a different format for scheduled events.
 
 ## Demo
 
@@ -45,10 +46,10 @@ The traffic machine cycles through `green → yellow → red.walk → red.flashi
 
 <!-- primary implementation files in src -->
 
-- `src/machine/trafficLight.ts` — standalone XState v6 alpha machine.
-- `src/server/xstateActor.ts` — generic pure-transition adapter.
-- `src/server/registry.ts` — Rivet actor registration and runtime action executor.
-- `src/App.tsx` — realtime React client using `@rivetkit/react`.
+- `src/machine/trafficLight.ts`: standalone XState v6 beta machine.
+- `src/server/xstateActor.ts`: generic pure-transition adapter.
+- `src/server/registry.ts`: Rivet actor registration and runtime effect executor.
+- `src/App.tsx`: realtime React client using `@rivetkit/react`.
 
 ## Verify
 

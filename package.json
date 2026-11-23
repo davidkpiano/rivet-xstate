@@ -22,7 +22,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "rivetkit": "^2.3.7",
-    "xstate": "6.0.0-alpha.21"
+    "xstate": "6.0.0-beta.5"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

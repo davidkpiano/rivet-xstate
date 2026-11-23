@@ -1,5 +1,5 @@
 // JSON-safe mirror of trafficLightMachine for the Stately embed.
-// The real machine uses dynamic function transitions (xstate v6 alpha),
+// The real machine uses dynamic function transitions (XState v6 beta),
 // which can't cross postMessage — this config carries the static structure
 // (states + targets) so the visualizer can render the statechart.
 export const trafficLightVizConfig = {

@@ -1,7 +1,9 @@
 import {
   getNextTransitions,
   initialTransition,
+  isBuiltInExecutableEffect,
   transition,
+  type AnyStateMachine,
 } from 'xstate';
 import { describe, expect, it } from 'vitest';
 import { trafficLightMachine } from './trafficLight';
@@ -11,7 +13,16 @@ describe('trafficLightMachine', () => {
     const [snapshot, actions] = initialTransition(trafficLightMachine);
 
     expect(snapshot.value).toBe('green');
-    expect(actions.some((action) => action.type === '@xstate.raise')).toBe(true);
+    const timer = actions.find(
+      (action) =>
+        isBuiltInExecutableEffect(action) && action.type === '@xstate.raise',
+    );
+    expect(timer?.delay).toBe(5000);
+    if (!timer) throw new Error('Missing green timer.');
+    expect(
+      transition<AnyStateMachine>(trafficLightMachine, snapshot, timer.event)[0]
+        .value,
+    ).toBe('yellow');
   });
 
   it('advances through nested red states without an XState actor', () => {
@@ -25,7 +36,9 @@ describe('trafficLightMachine', () => {
     expect(actions.some((action) => action.type === '@xstate.cancel')).toBe(
       true,
     );
-    expect(actions.some((action) => action.type === '@xstate.raise')).toBe(true);
+    expect(actions.some((action) => action.type === '@xstate.raise')).toBe(
+      true,
+    );
 
     [snapshot] = transition(trafficLightMachine, snapshot, { type: 'NEXT' });
     expect(snapshot.value).toEqual({ red: 'walk' });
@@ -42,7 +55,7 @@ describe('trafficLightMachine', () => {
     expect(snapshot.context.manualAdvances).toBe(5);
   });
 
-  it('exposes only domain events as next events', () => {
+  it('reports the beta timer event alongside domain events', () => {
     const [snapshot] = initialTransition(trafficLightMachine);
     const eventTypes = getNextTransitions(snapshot).map(
       (candidate) => candidate.eventType,
@@ -51,6 +64,6 @@ describe('trafficLightMachine', () => {
     expect(eventTypes).toContain('NEXT');
     expect(eventTypes).toContain('POWER_OUTAGE');
     expect(eventTypes).toContain('RESET');
-    expect(eventTypes).toContain('xstate.after.5000.trafficLight.green');
+    expect(eventTypes).toContain('xstate.after');
   });
 });

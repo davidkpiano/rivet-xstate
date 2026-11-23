@@ -2,7 +2,7 @@
 
 <!-- dependencies and engines from package.json -->
 
-A Node café simulation using XState `6.0.0-alpha.70`, SQLite or RivetKit `2.3.31`, and `@statelyai/sdk` `0.42.0`.
+A Node café simulation using XState `6.0.0-beta.5`, SQLite or RivetKit `2.3.31`, and `@statelyai/sdk` `0.42.0`.
 Requires Node 24.17 or newer. Payments are simulated. No provider account or API key is required.
 
 ## Run and inspect the actors
