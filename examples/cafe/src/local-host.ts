@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { setImmediate } from 'node:timers/promises';
 import { type AnyActorLogic, type InspectionEvent } from 'xstate';
-import { DurableActorExecution } from '@demo/xstate-durable';
+import {
+  DurableActorExecution,
+  serializable,
+  timerIdentity,
+} from '@demo/xstate-durable';
 import { CafeStore, type Delivery } from './store.ts';
-
-import { serializable } from '@demo/xstate-durable';
 
 /** One bounded execution. Every nondeterministic delivery is durable before application. */
 export class LocalDurableHost {
@@ -37,7 +39,7 @@ export class LocalDurableHost {
       startedAt,
       runtime: {
         scheduleTimer: (source, timer, delay) => {
-          const identity = `${source.address}:${JSON.stringify(timer)}`;
+          const identity = timerIdentity(source.address, timer);
           const key = `${this.turn}:${this.operation++}:${identity}`;
           this.timers.set(identity, { address: source.address, key });
           options.store.schedule(
@@ -48,7 +50,7 @@ export class LocalDurableHost {
           );
         },
         cancelTimer: (source, timer) => {
-          const identity = `${source.address}:${JSON.stringify(timer)}`;
+          const identity = timerIdentity(source.address, timer);
           const scheduled = this.timers.get(identity);
           if (scheduled) options.store.cancel(scheduled.key);
           this.timers.delete(identity);
@@ -168,7 +170,7 @@ export class LocalDurableHost {
     this.operation = 0;
     if (delivery.event.type === 'xstate.timer') {
       const { type: _type, ...timer } = delivery.event;
-      this.timers.delete(`${delivery.address}:${JSON.stringify(timer)}`);
+      this.timers.delete(timerIdentity(delivery.address, timer));
     }
     await this.core.deliver(delivery);
     this.options.onTurn?.(this);

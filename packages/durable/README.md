@@ -2,7 +2,7 @@
 
 <!-- package exports and supported versions from package.json and src/index.ts -->
 
-Private workspace experiment for XState `6.0.0-alpha.70` and RivetKit `2.3.31`.
+Private workspace experiment for XState `6.0.0-beta.5` and RivetKit `2.3.31`.
 The neutral execution driver is exported from `@demo/xstate-durable`.
 The Rivet entry point exports one runtime function, `xstate`. No module imports the café.
 A hypothetical published package could expose that function as `@xstate/rivet`.
@@ -95,6 +95,9 @@ Event transforms run at the application boundary. Replay uses recorded parsed ev
 and inspection checkpoints and turn buffers.
 `RivetExecution` supplies timer scheduling and async-result journaling. The `xstate` handler owns Rivet
 workflow steps, native queue consumption, publication, and inspection lifecycle.
+
+Both hosts use the timer's logical identity for cancellation and retain its occurrence in new timer deliveries.
+SQLite replay uses the existing timer keys and deadlines for histories recorded on alpha.
 
 The handler uses native Rivet workflow journaling and a completable native queue.
 The handler journals persisted native completion after effects and publication, then settles workflow completion.

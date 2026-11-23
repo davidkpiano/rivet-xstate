@@ -53,16 +53,16 @@ test('scheduled equipment breakdown and repair survive replay with their origina
   expect(host.view().actors.find((a) => a.id === 'espresso')?.value).toBe(
     'broken',
   );
+  const paused = host
+    .view()
+    .actors.find(
+      (actor) =>
+        actor.value && JSON.stringify(actor.value).includes('espressoPaused'),
+    );
+  expect(paused).toBeDefined();
   expect(
-    host
-      .view()
-      .actors.some(
-        (a) =>
-          a.id.startsWith('barista-') &&
-          a.value &&
-          JSON.stringify(a.value).includes('espressoPaused'),
-      ),
-  ).toBe(true);
+    host.view().timers.some((timer) => timer.address === paused?.address),
+  ).toBe(false);
   await host.close();
   host = open();
   await host.start();

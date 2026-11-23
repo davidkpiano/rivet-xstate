@@ -458,8 +458,10 @@ test('an event accepted before a timer retains its order when processing resumes
           z.object({ commandId: z.null() }).safeParse(delivery).success,
       ),
     ).toEqual(timer);
-    const published = await cafe.handle.getSnapshot();
-    expect(published?.events).toBeGreaterThanOrEqual(2);
+    await eventually(
+      () => cafe.handle.getSnapshot(),
+      (view) => view !== null && view.events >= 2,
+    );
   } finally {
     await cafe.client.dispose();
   }

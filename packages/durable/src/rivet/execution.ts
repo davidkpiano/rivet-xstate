@@ -1,6 +1,7 @@
 import { type AnyActorLogic, type InspectionEvent } from 'xstate';
 import type { Inspector } from '@statelyai/sdk/inspect';
 import { DurableActorExecution } from '../execution.ts';
+import { timerIdentity } from '../timers.ts';
 import { isTransportFailure } from './requests.ts';
 
 export type Delivery = {
@@ -48,7 +49,7 @@ export class RivetExecution {
       startedAt: options.startedAt,
       runtime: {
         scheduleTimer: (source, timer, delay) => {
-          const key = `${source.address}:${JSON.stringify(timer)}`;
+          const key = timerIdentity(source.address, timer);
           this.timers.set(key, {
             address: source.address,
             at: this.core.now + delay,
@@ -57,7 +58,7 @@ export class RivetExecution {
           });
         },
         cancelTimer: (source, timer) => {
-          this.timers.delete(`${source.address}:${JSON.stringify(timer)}`);
+          this.timers.delete(timerIdentity(source.address, timer));
         },
         cancelAllTimers: (source) => {
           for (const [key, timer] of this.timers)
@@ -133,7 +134,7 @@ export class RivetExecution {
     this.operation = 0;
     if (delivery.event.type === 'xstate.timer') {
       const { type: _type, ...timer } = delivery.event;
-      this.timers.delete(`${delivery.address}:${JSON.stringify(timer)}`);
+      this.timers.delete(timerIdentity(delivery.address, timer));
     }
     await this.core.deliver(delivery);
   }

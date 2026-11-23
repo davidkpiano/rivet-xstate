@@ -2,11 +2,11 @@ import { actor, event } from 'rivetkit';
 import {
   getNextTransitions,
   initialTransition,
-  isBuiltInExecutableAction,
+  isBuiltInExecutableEffect,
   transition,
   type AnyStateMachine,
   type EventFromLogic,
-  type ExecutableActionObjectFromLogic,
+  type ExecutableEffectFrom,
   type InputFrom,
   type SnapshotFrom,
 } from 'xstate';
@@ -47,9 +47,20 @@ export type XStateActorOptions<M extends AnyStateMachine> = {
   options?: { name?: string; icon?: string };
   executeAction?: (
     context: RuntimeContext,
-    action: ExecutableActionObjectFromLogic<M>,
+    action: ExecutableEffectFrom<M>,
   ) => void | Promise<void>;
 };
+
+function scheduleKey(effect: {
+  id?: string | undefined;
+  seq?: number | undefined;
+  event?: { type: string } | undefined;
+}): string {
+  if (effect.id !== undefined) return effect.id;
+  return effect.seq === undefined
+    ? JSON.stringify(['event', effect.event])
+    : JSON.stringify(['seq', effect.seq]);
+}
 
 function restore<M extends AnyStateMachine>(
   machine: M,
@@ -111,7 +122,7 @@ export function createXStateActor<M extends AnyStateMachine>(
   const initialize = initialTransition as unknown as (
     logic: M,
     input?: InputFrom<M>,
-  ) => [SnapshotFrom<M>, ExecutableActionObjectFromLogic<M>[]];
+  ) => [SnapshotFrom<M>, ExecutableEffectFrom<M>[]];
   const [initialSnapshot, initialActions] = initialize(machine, options.input);
   const initialState: RuntimeState = {
     snapshot: machine.getPersistedSnapshot(
@@ -122,28 +133,30 @@ export function createXStateActor<M extends AnyStateMachine>(
 
   async function executeActions(
     context: RuntimeContext,
-    actions: ExecutableActionObjectFromLogic<M>[],
+    actions: ExecutableEffectFrom<M>[],
   ) {
     for (const action of actions) {
-      if (isBuiltInExecutableAction(action)) {
+      if (isBuiltInExecutableEffect(action)) {
         if (action.type === '@xstate.raise') {
           if (action.delay !== undefined) {
+            const timerKey = scheduleKey(action);
             const scheduleId = await context.schedule.after(
               action.delay,
               'fireEvent',
               action.event,
-              action.id,
+              timerKey,
             );
-            if (action.id) context.state.schedules[action.id] = scheduleId;
+            context.state.schedules[timerKey] = scheduleId;
           }
           continue;
         }
 
         if (action.type === '@xstate.cancel') {
-          const scheduleId = context.state.schedules[action.id];
+          const timerKey = scheduleKey(action);
+          const scheduleId = context.state.schedules[timerKey];
           if (scheduleId) {
             await context.schedule.cancel(scheduleId);
-            delete context.state.schedules[action.id];
+            delete context.state.schedules[timerKey];
           }
           continue;
         }

@@ -83,6 +83,8 @@ test('saved pre-refactor history resumes with unchanged identities, memo keys an
           'address' in value
         )
           return { $actor: value.address };
+        if (value !== null && typeof value === 'object' && '@actor' in value)
+          return { $actor: value['@actor'] };
         return value;
       }),
     );

@@ -4,3 +4,4 @@ export {
   serializable,
   type ActorView,
 } from './inspection-view.ts';
+export { timerIdentity } from './timers.ts';
